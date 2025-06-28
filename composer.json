@@ -1,0 +1,58 @@
+{
+    "name": "askancy/laravel-smart-thumbnails",
+    "description": "Advanced thumbnail generation with smart cropping for Laravel applications",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel",
+        "thumbnails",
+        "image",
+        "crop",
+        "smart-crop",
+        "intervention",
+        "resize"
+    ],
+  "authors": [
+    {
+      "name": "Daniele Caluri",
+      "email": "daniele@caluri.it"
+    }
+    ],
+    "require": {
+        "php": "^8.1",
+        "laravel/framework": "^10.0|^11.0|^12.0",
+        "intervention/image": "^2.7",
+        "ext-gd": "*"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0|^9.0",
+        "phpunit/phpunit": "^10.0|^11.0",
+        "mockery/mockery": "^1.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Askancy\\LaravelSmartThumbnails\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Askancy\\LaravelSmartThumbnails\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Askancy\\LaravelSmartThumbnails\\Providers\\ThumbnailServiceProvider"
+            ],
+            "aliases": {
+                "Thumbnail": "Askancy\\LaravelSmartThumbnails\\Facades\\Thumbnail"
+            }
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "test-coverage": "vendor/bin/phpunit --coverage-html coverage"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
