@@ -9,7 +9,10 @@ use Askancy\LaravelSmartThumbnails\Commands\ThumbnailPurgeCommand;
 
 class ThumbnailServiceProvider extends ServiceProvider
 {
-    public function register()
+    /**
+     * Register any application services.
+     */
+    public function register(): void
     {
         $this->mergeConfigFrom(
             __DIR__ . '/../config/thumbnails.php',
@@ -21,18 +24,34 @@ class ThumbnailServiceProvider extends ServiceProvider
         $this->app->singleton('laravel-smart-thumbnails', function ($app) {
             return new ThumbnailService($app->make(SmartCropService::class));
         });
+
+        // Alias per la facade
+        $this->app->alias('laravel-smart-thumbnails', ThumbnailService::class);
     }
 
-    public function boot()
+    /**
+     * Bootstrap any package services.
+     */
+    public function boot(): void
     {
         if ($this->app->runningInConsole()) {
             $this->publishes([
                 __DIR__ . '/../config/thumbnails.php' => config_path('thumbnails.php'),
             ], 'laravel-smart-thumbnails-config');
 
-            $this->commands([
-                ThumbnailPurgeCommand::class,
-            ]);
+            if (class_exists(ThumbnailPurgeCommand::class)) {
+                $this->commands([
+                    ThumbnailPurgeCommand::class,
+                ]);
+            }
         }
+    }
+
+    /**
+     * Get the services provided by the provider.
+     */
+    public function provides(): array
+    {
+        return ['laravel-smart-thumbnails', ThumbnailService::class];
     }
 }

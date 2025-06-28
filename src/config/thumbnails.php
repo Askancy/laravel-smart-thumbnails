@@ -13,6 +13,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Error Handling
+    |--------------------------------------------------------------------------
+    */
+    'silent_mode_default' => false,          // Modalità silenziosa di default
+    'generate_placeholders' => true,         // Genera placeholder in caso di errore
+    'placeholder_url' => '/images/thumbnail-error.png', // URL placeholder personalizzato
+    'log_errors' => true,                    // Log degli errori
+
+    /*
+    |--------------------------------------------------------------------------
+    | Fallback Options
+    |--------------------------------------------------------------------------
+    */
+    'fallback_to_original' => true,          // Usa immagine originale se thumbnail fallisce
+    'placeholder_color' => '#f8f9fa',        // Colore placeholder generato
+    'placeholder_text_color' => '#6c757d',   // Colore testo placeholder
+
+    /*
+    |--------------------------------------------------------------------------
     | Thumbnail Configurations
     |--------------------------------------------------------------------------
     */
@@ -23,21 +42,11 @@ return [
             'destination' => ['disk' => 'local', 'path' => 'crops/news/'],
             'quality' => 85,
             'smart_crop_enabled' => true,
+            'silent_mode' => false,
             'variants' => [
                 'mobile' => ['smartcrop' => '80x80', 'quality' => 80],
                 'desktop' => ['smartcrop' => '200x150', 'quality' => 90],
                 'large' => ['smartcrop' => '400x300', 'quality' => 95],
-            ]
-        ],
-        'articles' => [
-            'format' => 'jpg',
-            'smartcrop' => '200x150',
-            'destination' => ['disk' => 'public', 'path' => 'crops/articles/'],
-            'quality' => 90,
-            'smart_crop_enabled' => true,
-            'variants' => [
-                'thumb' => ['smartcrop' => '100x75'],
-                'hero' => ['smartcrop' => '800x400'],
             ]
         ],
         'gallery' => [
@@ -46,21 +55,10 @@ return [
             'destination' => ['disk' => 'public', 'path' => 'crops/gallery/'],
             'quality' => 85,
             'smart_crop_enabled' => true,
+            'silent_mode' => true,
             'variants' => [
                 'thumbnail' => ['smartcrop' => '150x150'],
                 'preview' => ['smartcrop' => '500x300'],
-            ]
-        ],
-        'profile' => [
-            'format' => 'webp',
-            'smartcrop' => '100x100',
-            'destination' => ['disk' => 'public', 'path' => 'crops/profiles/'],
-            'quality' => 80,
-            'smart_crop_enabled' => true,
-            'variants' => [
-                'small' => ['smartcrop' => '50x50'],
-                'medium' => ['smartcrop' => '150x150'],
-                'large' => ['smartcrop' => '300x300'],
             ]
         ],
     ],
