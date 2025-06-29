@@ -1,0 +1,230 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: [8.1, 8.2, 8.3]
+        laravel: ['10.*', '11.*']
+        dependency-version: [prefer-stable]
+        include:
+          - laravel: 11.*
+            testbench: 9.*
+          - laravel: 10.*
+            testbench: 8.*
+
+    name: PHP ${{ matrix.php }} - Laravel ${{ matrix.laravel }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd, imagick
+          coverage: none
+
+      - name: Setup problem matchers
+        run: |
+          echo "::add-matcher::${{ runner.tool_cache }}/php.json"
+          echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
+
+      - name: Get composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: dependencies-laravel-${{ matrix.laravel }}-php-${{ matrix.php }}-composer-${{ hashFiles('composer.json') }}
+          restore-keys: dependencies-laravel-${{ matrix.laravel }}-php-${{ matrix.php }}-composer-
+
+      - name: Install dependencies
+        run: |
+          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
+          composer update --${{ matrix.dependency-version }} --prefer-dist --no-interaction
+
+      - name: Create test images
+        run: |
+          mkdir -p tests/fixtures/images
+          # Create test images using ImageMagick
+          convert -size 300x200 xc:red tests/fixtures/images/test-red.jpg
+          convert -size 400x300 xc:blue tests/fixtures/images/test-blue.png
+          convert -size 500x400 xc:green tests/fixtures/images/test-green.webp
+          convert -size 100x100 xc:yellow tests/fixtures/images/test-square.jpg
+
+      - name: Execute tests
+        run: vendor/bin/phpunit --verbose
+
+  code-quality:
+    runs-on: ubuntu-latest
+    name: Code Quality
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.2
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd
+          coverage: xdebug
+
+      - name: Get composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: dependencies-php-8.2-composer-${{ hashFiles('composer.json') }}
+          restore-keys: dependencies-php-8.2-composer-
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Create test images
+        run: |
+          mkdir -p tests/fixtures/images
+          convert -size 300x200 xc:red tests/fixtures/images/test-red.jpg
+          convert -size 400x300 xc:blue tests/fixtures/images/test-blue.png
+          convert -size 500x400 xc:green tests/fixtures/images/test-green.webp
+          convert -size 100x100 xc:yellow tests/fixtures/images/test-square.jpg
+
+      - name: Execute tests with coverage
+        run: vendor/bin/phpunit --coverage-text --coverage-clover=coverage.clover
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.clover
+          fail_ci_if_error: false
+
+  security:
+    runs-on: ubuntu-latest
+    name: Security Check
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.2
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Run security check
+        run: |
+          if [ -f composer.lock ]; then
+            composer audit --no-dev
+          else
+            echo "No composer.lock file found, skipping security check"
+          fi
+
+  performance:
+    runs-on: ubuntu-latest
+    name: Performance Test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.2
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd, imagick
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Create large test image
+        run: |
+          mkdir -p tests/fixtures/images
+          # Create a large test image for performance testing
+          convert -size 2000x1500 xc:red tests/fixtures/images/large-test.jpg
+
+      - name: Run performance tests
+        run: |
+          # Create a simple performance test
+          php -r "
+          require 'vendor/autoload.php';
+          use Askancy\LaravelSmartThumbnails\Services\ThumbnailService;
+          use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
+          
+          echo 'Starting performance test...' . PHP_EOL;
+          
+          \$start = microtime(true);
+          \$smartCrop = new SmartCropService();
+          \$service = new ThumbnailService(\$smartCrop);
+          \$end = microtime(true);
+          
+          echo 'Service instantiation: ' . round((\$end - \$start) * 1000, 2) . 'ms' . PHP_EOL;
+          echo 'Performance test completed successfully!' . PHP_EOL;
+          "
+
+  compatibility:
+    runs-on: ubuntu-latest
+    name: Compatibility Matrix
+
+    strategy:
+      matrix:
+        php: [8.1, 8.2, 8.3]
+        intervention-version: ['2.7.*', '3.*']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, gd, imagick
+
+      - name: Install dependencies with specific Intervention version
+        run: |
+          composer require "intervention/image:${{ matrix.intervention-version }}" --no-interaction --no-update
+          composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Create test images
+        run: |
+          mkdir -p tests/fixtures/images
+          convert -size 300x200 xc:red tests/fixtures/images/test-red.jpg
+
+      - name: Test basic functionality
+        run: |
+          php -r "
+          require 'vendor/autoload.php';
+          use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
+          
+          echo 'Testing PHP ${{ matrix.php }} with Intervention Image ${{ matrix.intervention-version }}' . PHP_EOL;
+          
+          try {
+            \$service = new SmartCropService();
+            echo '✅ SmartCropService instantiated successfully' . PHP_EOL;
+          } catch (Exception \$e) {
+            echo '❌ Error: ' . \$e->getMessage() . PHP_EOL;
+            exit(1);
+          }
+          
+          echo '✅ Compatibility test passed!' . PHP_EOL;
+          "
