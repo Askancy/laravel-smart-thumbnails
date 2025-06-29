@@ -1,6 +1,10 @@
 # Laravel Smart Thumbnails
 
-The most advanced thumbnail generation package for Laravel with intelligent cropping, multi-disk support, subdirectory organization, and **bulletproof error handling** that never breaks your application.
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/3c71d5d7-19ca-4703-9612-d3eeaed23183" alt="Laravel Smart Thumbnails Demo" width="600"/>
+</p>
+
+The most **advanced thumbnail generation package** for Laravel with intelligent cropping, multi-disk support, **subdirectory organization**, and **bulletproof error handling** that never breaks your application.
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/askancy/laravel-smart-thumbnails.svg?style=flat-square)](https://packagist.org/packages/askancy/laravel-smart-thumbnails)
 [![Total Downloads](https://img.shields.io/packagist/dt/askancy/laravel-smart-thumbnails.svg?style=flat-square)](https://packagist.org/packages/askancy/laravel-smart-thumbnails)
@@ -66,21 +70,6 @@ The package offers **bulletproof error handling** that ensures your application 
 
 ## 🎯 Quick Examples
 
-### **E-commerce Product Gallery**
-
-```blade
-{{-- Product thumbnails that never break --}}
-@foreach($products as $product)
-    <div class="product-card">
-        <img src="{{ Thumbnail::set('products')->src($product->image, 's3_products')->urlSafe('card') }}"
-             alt="{{ $product->name }}"
-             loading="lazy">
-        <h3>{{ $product->name }}</h3>
-        <p>${{ $product->price }}</p>
-    </div>
-@endforeach
-```
-
 ### **Responsive Blog Headers**
 
 ```blade
@@ -93,16 +82,6 @@ The package offers **bulletproof error handling** that ensures your application 
          alt="{{ $post->title }}"
          loading="lazy">
 </picture>
-```
-
-### **User Avatar System**
-
-```blade
-{{-- Avatar with automatic fallback --}}
-<img src="{{ Thumbnail::set('avatars')->src($user->avatar ?? '', 's3_avatars')->urlSafe('medium') }}"
-     alt="{{ $user->name }}"
-     class="rounded-full"
-     onerror="this.src='/images/default-avatar.png'">
 ```
 
 ### **Homepage Slider (Never Breaks)**
@@ -349,23 +328,13 @@ php artisan cache:clear
 - ⚡ **Efficient** backup and sync
 - 🎯 **Optimal** for CDN delivery
 
-## 🆕 What's New in v2.0
-
-- 🛡️ **Bulletproof Error Handling** - Never breaks your application
-- 📁 **Subdirectory Organization** - Handle millions of files efficiently
-- 🔄 **Smart Fallback System** - Multiple fallback strategies
-- 🎨 **Enhanced Placeholders** - Beautiful error states
-- ⚙️ **Per-Preset Configuration** - Fine-grained control
-- 📊 **Advanced Analytics** - Comprehensive statistics
-- 🚀 **Performance Optimizations** - Memory and speed improvements
-
 ## 🤝 Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## 📄 License
 
-MIT License. See [LICENSE.md](LICENSE.md) for details.
+MIT License. See [LICENSE.md](!LICENSE.md) for details.
 
 ## 🙏 Credits
 
