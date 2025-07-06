@@ -33,6 +33,7 @@ return [
     'silent_mode_default' => false,         // Default silent mode for error-safe operations
     'generate_placeholders' => true,        // Generate placeholder images on errors
     'placeholder_url' => '/images/thumbnail-error.png', // Custom placeholder URL
+    'log_errors_full' => true,          // Log of all thumbnail generation errors
     'log_errors' => true,                   // Enable error logging
 
     /*
