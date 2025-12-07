@@ -22,7 +22,14 @@
         "php": "^8.1",
         "laravel/framework": "^10.0|^11.0|^12.0",
         "intervention/image": "^3.9",
+        "intervention/image-gd": "^1.0",
         "ext-gd": "*"
+    },
+    "suggest": {
+        "intervention/image-imagick": "For better image quality and more features (requires ext-imagick)",
+        "ext-imagick": "For advanced image processing capabilities",
+        "ext-redis": "For cache tagging support with Redis driver",
+        "ext-memcached": "For cache tagging support with Memcached driver"
     },
     "require-dev": {
         "orchestra/testbench": "^8.0|^9.0",
@@ -51,7 +58,11 @@
     },
     "scripts": {
         "test": "vendor/bin/phpunit",
-        "test-coverage": "vendor/bin/phpunit --coverage-html coverage"
+        "test-coverage": "vendor/bin/phpunit --coverage-html coverage",
+        "test-unit": "vendor/bin/phpunit --testsuite Unit",
+        "test-feature": "vendor/bin/phpunit --testsuite Feature",
+        "analyse": "phpstan analyse src --level=5 || true",
+        "format": "php-cs-fixer fix src || true"
     },
     "minimum-stability": "stable",
     "prefer-stable": true

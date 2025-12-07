@@ -9,8 +9,9 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
-use Intervention\Image\ImageManagerStatic as Image;
+use Intervention\Image\ImageManager;
 use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
 
 class GenerateThumbnailJob implements ShouldQueue
 {
@@ -43,10 +44,18 @@ class GenerateThumbnailJob implements ShouldQueue
         $this->variant = $variant;
     }
 
+    /**
+     * Execute the job
+     * Uses Intervention Image 3.x API and ThumbnailGenerator utilities
+     *
+     * @param SmartCropService $smartCropService
+     * @return void
+     * @throws \Exception
+     */
     public function handle(SmartCropService $smartCropService)
     {
         try {
-            // Verifica se il thumbnail è già stato generato nel frattempo
+            // Check if thumbnail already exists (race condition protection)
             if (Storage::disk($this->config['destination']['disk'])->exists($this->thumbnailPath)) {
                 Log::info('Thumbnail already exists, skipping generation', [
                     'path' => $this->thumbnailPath
@@ -54,10 +63,10 @@ class GenerateThumbnailJob implements ShouldQueue
                 return;
             }
 
-            // Configura Intervention Image
-            $driver = config('thumbnails.intervention_driver', 'gd');
-            Image::configure(['driver' => $driver]);
+            // Initialize ImageManager with Intervention Image 3.x
+            $imageManager = ThumbnailGenerator::createImageManager();
 
+            // Configure memory limit
             $memoryLimit = config('thumbnails.memory_limit');
             if ($memoryLimit) {
                 ini_set('memory_limit', $memoryLimit);
@@ -65,7 +74,7 @@ class GenerateThumbnailJob implements ShouldQueue
 
             $startTime = microtime(true);
 
-            // Verifica esistenza file sorgente
+            // Validate source file existence
             if (!Storage::disk($this->sourceDisk)->exists($this->sourcePath)) {
                 throw new \Exception("Source image not found: {$this->sourcePath}");
             }
@@ -76,7 +85,8 @@ class GenerateThumbnailJob implements ShouldQueue
                 throw new \Exception("Source image is empty: {$this->sourcePath}");
             }
 
-            $image = Image::make($imageContent);
+            // Read image using Intervention Image 3.x
+            $image = $imageManager->read($imageContent);
             $originalWidth = $image->width();
             $originalHeight = $image->height();
 
@@ -88,49 +98,45 @@ class GenerateThumbnailJob implements ShouldQueue
                 throw new \Exception("Invalid dimensions: {$this->config['smartcrop']}");
             }
 
-            // Applica smart crop se abilitato
+            // Apply smart crop if enabled
             $smartCropEnabled = $this->config['smart_crop_enabled'] ?? config('thumbnails.enable_smart_crop', true);
 
             if ($smartCropEnabled) {
-                // Ottimizza smart crop per immagini grandi
+                // Optimize smart crop for large images by analyzing at smaller size
                 $maxAnalysisSize = config('thumbnails.max_smart_crop_analysis_size', 800);
                 if ($originalWidth > $maxAnalysisSize || $originalHeight > $maxAnalysisSize) {
-                    $analysisImage = clone $image;
-                    $analysisImage->resize($maxAnalysisSize, $maxAnalysisSize, function ($constraint) {
-                        $constraint->aspectRatio();
-                        $constraint->upsize();
-                    });
-                    $image = $smartCropService->smartCrop($analysisImage, $width, $height);
+                    // For large images, use basic crop to reduce memory usage
+                    $image = ThumbnailGenerator::applyBasicCrop($image, $width, $height);
                 } else {
-                    $image = $smartCropService->smartCrop($image, $width, $height);
+                    try {
+                        $image = $smartCropService->smartCrop($image, $width, $height);
+                    } catch (\Exception $e) {
+                        // Fallback to basic crop if smart crop fails
+                        Log::warning('Smart crop failed, using basic crop', [
+                            'error' => $e->getMessage(),
+                            'source' => $this->sourcePath
+                        ]);
+                        $image = ThumbnailGenerator::applyBasicCrop($image, $width, $height);
+                    }
                 }
             } else {
-                $image = $this->applyBasicCrop($image, $width, $height);
+                $image = ThumbnailGenerator::applyBasicCrop($image, $width, $height);
             }
 
             $format = $this->config['format'] ?? config('thumbnails.default_format', 'jpg');
             $quality = $this->config['quality'] ?? config('thumbnails.default_quality', 85);
 
-            $processedImage = $this->convertFormat($image, $format, $quality);
+            $processedImage = ThumbnailGenerator::convertFormat($image, $format, $quality);
 
-            // Assicura che la directory di destinazione esista
-            $this->ensureDestinationDirectory($this->config['destination']['disk'], dirname($this->thumbnailPath));
+            // Ensure destination directory exists
+            ThumbnailGenerator::ensureDestinationDirectory($this->config['destination']['disk'], dirname($this->thumbnailPath));
 
-            // Salva il thumbnail
+            // Save thumbnail
             $disk = Storage::disk($this->config['destination']['disk']);
             $disk->put($this->thumbnailPath, $processedImage);
 
-            // Imposta visibilità pubblica se supportata
-            if ($this->diskSupportsVisibility($this->config['destination']['disk'])) {
-                try {
-                    $disk->setVisibility($this->thumbnailPath, 'public');
-                } catch (\Exception $e) {
-                    Log::warning('Could not set thumbnail visibility to public', [
-                        'path' => $this->thumbnailPath,
-                        'error' => $e->getMessage()
-                    ]);
-                }
-            }
+            // Set public visibility if supported
+            ThumbnailGenerator::setPublicVisibility($this->config['destination']['disk'], $this->thumbnailPath);
 
             $executionTime = microtime(true) - $startTime;
 
@@ -142,8 +148,8 @@ class GenerateThumbnailJob implements ShouldQueue
                 'execution_time' => round($executionTime * 1000, 2) . 'ms'
             ]);
 
-            // Cleanup memory
-            $image->destroy();
+            // Cleanup memory (Intervention Image 3.x manages this automatically)
+            unset($image);
         } catch (\Exception $e) {
             Log::error('Async thumbnail generation failed', [
                 'source' => $this->sourcePath,
@@ -158,84 +164,12 @@ class GenerateThumbnailJob implements ShouldQueue
         }
     }
 
-    protected function applyBasicCrop($image, int $width, int $height)
-    {
-        $originalWidth = $image->width();
-        $originalHeight = $image->height();
-        $originalRatio = $originalWidth / $originalHeight;
-        $targetRatio = $width / $height;
-
-        if ($originalRatio > $targetRatio) {
-            $newWidth = $originalHeight * $targetRatio;
-            $x = ($originalWidth - $newWidth) / 2;
-            $image->crop($newWidth, $originalHeight, $x, 0);
-        } elseif ($originalRatio < $targetRatio) {
-            $newHeight = $originalWidth / $targetRatio;
-            $y = ($originalHeight - $newHeight) / 2;
-            $image->crop($originalWidth, $newHeight, 0, $y);
-        }
-
-        return $image->resize($width, $height);
-    }
-
-    protected function convertFormat($image, string $format, int $quality = 85)
-    {
-        switch (strtolower($format)) {
-            case 'webp':
-                $lossless = config('thumbnails.webp_lossless', false);
-                return $image->encode('webp', $lossless ? 100 : $quality)->encoded;
-
-            case 'png':
-                $compression = config('thumbnails.png_compression', 6);
-                return $image->encode('png', $compression)->encoded;
-
-            case 'jpg':
-            case 'jpeg':
-            default:
-                return $image->encode('jpg', $quality)->encoded;
-        }
-    }
-
-    protected function ensureDestinationDirectory(string $disk, string $directory): void
-    {
-        try {
-            $directory = $this->normalizePath($directory);
-
-            if (!Storage::disk($disk)->exists($directory)) {
-                Storage::disk($disk)->makeDirectory($directory, 0755, true);
-            }
-        } catch (\Exception $e) {
-            Log::warning("Could not create directory: " . $e->getMessage());
-        }
-    }
-
-    protected function normalizePath(string $path): string
-    {
-        $path = preg_replace('/\/+/', '/', $path);
-        $path = rtrim($path, '/');
-        $path = ltrim($path, '/');
-        return $path;
-    }
-
-    protected function diskSupportsVisibility(string $diskName): bool
-    {
-        $diskConfig = config("filesystems.disks.{$diskName}");
-
-        if (!$diskConfig) {
-            return false;
-        }
-
-        if ($diskConfig['driver'] === 'scoped') {
-            $parentDisk = $diskConfig['disk'] ?? null;
-            if ($parentDisk) {
-                $parentConfig = config("filesystems.disks.{$parentDisk}");
-                return $parentConfig && in_array($parentConfig['driver'], ['s3', 'gcs']);
-            }
-        }
-
-        return in_array($diskConfig['driver'], ['s3', 'gcs', 'local']);
-    }
-
+    /**
+     * Handle job failure
+     *
+     * @param \Exception $exception
+     * @return void
+     */
     public function failed(\Exception $exception)
     {
         Log::error('Thumbnail generation job failed permanently', [

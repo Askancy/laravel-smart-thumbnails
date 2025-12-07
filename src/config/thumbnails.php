@@ -13,6 +13,16 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Cache Settings
+    |--------------------------------------------------------------------------
+    | Enable URL caching to improve performance by storing generated URLs
+    | TTL is in seconds (default: 3600 = 1 hour)
+    */
+    'cache_urls' => true,
+    'cache_ttl' => 3600,
+
+    /*
+    |--------------------------------------------------------------------------
     | Subdirectory Strategy
     |--------------------------------------------------------------------------
     | Strategy for organizing thumbnails in subdirectories to optimize filesystem performance:

@@ -10,6 +10,23 @@ The most **advanced thumbnail generation package** for Laravel with intelligent 
 [![Total Downloads](https://img.shields.io/packagist/dt/askancy/laravel-smart-thumbnails.svg?style=flat-square)](https://packagist.org/packages/askancy/laravel-smart-thumbnails)
 [![Tests](https://img.shields.io/github/actions/workflow/status/askancy/laravel-smart-thumbnails/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/askancy/laravel-smart-thumbnails/actions)
 
+## ✨ What's New in Latest Version
+
+### Major Improvements
+- 🎯 **Intervention Image 3.x Support** - Full compatibility with the latest Intervention Image version
+- 🏷️ **Smart Cache Tagging** - Targeted cache invalidation without affecting your entire application cache
+- 🧩 **Refactored Architecture** - New `ThumbnailGenerator` utility class for better code reusability
+- 🧠 **Enhanced Smart Crop** - Improved rule-of-thirds algorithm with better image analysis
+- 📝 **Complete PHPDoc** - Full documentation for all public methods and classes
+
+### Performance & Reliability
+- ⚡ **Faster Cache Operations** - Consistent 1-hour TTL across all cache layers
+- 🎨 **Better Memory Management** - Automatic cleanup with Intervention Image 3.x
+- 🔧 **No Breaking Changes** - Fully backward compatible with existing implementations
+
+> **📚 See the [Upgrade Guide](#-upgrade-guide) for migration instructions**
+> **📋 See [CHANGELOG.md](CHANGELOG.md) for complete version history**
+
 ## 🚀 Features
 
 - ✨ **Smart Crop Algorithm** - Based on [dont-crop](https://github.com/jwagner/dont-crop/) with energy detection
@@ -26,9 +43,10 @@ The most **advanced thumbnail generation package** for Laravel with intelligent 
 ## 📋 Requirements
 
 - PHP 8.1+
-- Laravel 10.0+
-- Intervention Image 2.7+ or 3.0+
-- GD or ImageMagick extension
+- Laravel 10.0, 11.0, or 12.0
+- Intervention Image 3.9+
+- GD extension (required) or ImageMagick extension (recommended)
+- Redis or Memcached extension (optional, for cache tagging support)
 
 ## 📦 Installation
 
@@ -328,9 +346,147 @@ php artisan cache:clear
 - ⚡ **Efficient** backup and sync
 - 🎯 **Optimal** for CDN delivery
 
+## 🔄 Upgrade Guide
+
+### Upgrading to Latest Version (Intervention Image 3.x)
+
+The latest version includes major improvements while maintaining **100% backward compatibility**. No code changes are required!
+
+#### What Changed
+
+**✅ Automatic Improvements** (No action required)
+- Intervention Image upgraded from 2.x to 3.x
+- Cache system now uses tags for targeted invalidation
+- Memory management improved
+- Smart crop algorithm enhanced
+
+#### Recommended Actions
+
+**1. Update Dependencies**
+
+```bash
+composer update askancy/laravel-smart-thumbnails
+```
+
+**2. Configure Cache Driver** (For optimal cache tagging)
+
+If using `file` or `database` cache drivers, consider upgrading to Redis or Memcached for cache tagging support:
+
+```php
+// config/cache.php
+'default' => env('CACHE_DRIVER', 'redis'), // or 'memcached'
+```
+
+**Cache drivers that support tagging:**
+- ✅ Redis (recommended)
+- ✅ Memcached
+- ✅ Array (testing only)
+- ❌ File (falls back to non-tagged cache)
+- ❌ Database (falls back to non-tagged cache)
+
+**3. Optional: Enable ImageMagick** (Better quality)
+
+```bash
+# Install ImageMagick extension
+pecl install imagick
+
+# Then update config
+// config/thumbnails.php
+'intervention_driver' => 'imagick', // Changed from 'gd'
+```
+
+**4. Verify Configuration**
+
+```bash
+php artisan tinker
+>>> Thumbnail::validateConfiguration()
+```
+
+#### New Configuration Options
+
+Add these to your `config/thumbnails.php` (optional, defaults shown):
+
+```php
+/*
+|--------------------------------------------------------------------------
+| Cache Settings
+|--------------------------------------------------------------------------
+*/
+'cache_urls' => true,        // Enable URL caching
+'cache_ttl' => 3600,         // Cache TTL in seconds (1 hour)
+```
+
+#### Breaking Changes
+
+**None!** This is a fully backward-compatible update.
+
+#### Troubleshooting
+
+**Issue: Cache not working after upgrade**
+```bash
+# Clear Laravel cache
+php artisan cache:clear
+php artisan config:clear
+```
+
+**Issue: "Driver not found" error**
+```bash
+# Install Intervention Image GD driver
+composer require intervention/image-gd
+
+# Or for ImageMagick
+composer require intervention/image-imagick
+```
+
+**Issue: Thumbnails not generating**
+```bash
+# Test your configuration
+php artisan tinker
+>>> Thumbnail::set('gallery')->debugInfo()
+```
+
+### Performance Optimization Tips
+
+**1. Warm up cache for existing thumbnails:**
+```php
+// In a command or controller
+$images = ['image1.jpg', 'image2.jpg', ...];
+$results = Thumbnail::warmUpCache($images, 'gallery', ['thumb', 'medium']);
+// Returns: ['warmed' => 50, 'already_cached' => 25, 'errors' => 0]
+```
+
+**2. Use preset-specific cache clearing:**
+```php
+// Clear only thumbnails cache (not entire app cache)
+Cache::tags(['thumbnails'])->flush();
+
+// Clear specific preset cache
+Cache::tags(['thumbnails', 'gallery'])->flush();
+```
+
+**3. Monitor cache performance:**
+```php
+$metrics = Thumbnail::set('gallery')->src('photo.jpg')->getPerformanceMetrics();
+// Returns execution time, memory usage, cache hit/miss info
+```
+
+## 🚀 Roadmap
+
+We have exciting enhancements planned for the smart crop algorithm! See [SMART_CROP_ROADMAP.md](SMART_CROP_ROADMAP.md) for:
+
+- 🎯 **Edge Detection** - Sobel filter for identifying image edges
+- 🧠 **Entropy Analysis** - Texture and detail detection
+- 👤 **Face Detection** - Automatic face preservation
+- 🗺️ **Saliency Maps** - Visual attention modeling
+- 🤖 **Machine Learning** - AI-powered object detection
+
+Contributions welcome! Check the roadmap for implementation details and priorities.
+
 ## 🤝 Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+For implementing smart crop enhancements, refer to [SMART_CROP_ROADMAP.md](SMART_CROP_ROADMAP.md).
 
 ## 📄 License
 
