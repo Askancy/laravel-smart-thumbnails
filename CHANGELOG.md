@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2025-12-11
+
 ### Added
+- **AVIF Format Support**: Next-generation image format with superior compression
+  - Added AVIF to supported output formats in `ThumbnailGenerator::convertFormat()`
+  - Added `'avif'` to allowed file extensions in configuration
+  - 50% smaller file sizes compared to JPEG at same quality
+  - 30% smaller than WebP in most cases
+  - Requires ImageMagick driver (not available with GD)
+  - Comprehensive documentation in README with usage examples
+  - Format comparison table and browser support information
+
 - **Intervention Image 3.x Support**: Full compatibility with Intervention Image 3.9+
   - New `ThumbnailGenerator` utility class with static helpers
   - Updated API usage from `ImageManagerStatic` to `ImageManager`
@@ -45,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `intervention/image-gd` as required dependency
   - Suggested packages for ImageMagick, Redis, and Memcached
   - Additional composer scripts for testing and analysis
+  - Added `avif` and `webp` keywords
+  - Updated suggestions to mention AVIF format support
 
 ### Changed
 - **Breaking**: None! All changes are backward compatible
@@ -82,6 +95,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unused helper methods (now in `ThumbnailGenerator`)
 
 ### Documentation
+- Added comprehensive AVIF format support documentation
+- Format comparison table (AVIF vs WebP vs JPEG vs PNG)
+- AVIF setup and configuration guide
+- Updated requirements to highlight ImageMagick for AVIF
 - Added comprehensive upgrade guide in README
 - Created `SMART_CROP_ROADMAP.md` for future enhancements
 - Added "What's New" section highlighting latest features

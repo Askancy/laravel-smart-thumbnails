@@ -92,7 +92,7 @@ return [
     | Security Settings
     |--------------------------------------------------------------------------
     */
-    'allowed_extensions' => ['jpg', 'jpeg', 'png', 'webp', 'gif'], // Allowed file extensions
+    'allowed_extensions' => ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'], // Allowed file extensions
     'max_file_size' => 10 * 1024 * 1024,   // Maximum file size (10MB)
     'validate_image_content' => true,       // Validate actual image content
     'sanitize_filenames' => true,           // Sanitize filenames for security

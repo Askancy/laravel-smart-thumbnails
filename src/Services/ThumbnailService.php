@@ -9,6 +9,7 @@ use Intervention\Image\ImageManager;
 use Intervention\Image\Interfaces\ImageInterface;
 use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
 use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
+use Askancy\LaravelSmartThumbnails\Support\CacheHelper;
 
 class ThumbnailService
 {
@@ -142,7 +143,7 @@ class ThumbnailService
     {
         $configKey = 'config:' . $this->configKey . ':' . ($variant ?? 'main');
 
-        return Cache::tags([self::CACHE_TAG, 'config'])->remember($configKey, self::CACHE_TTL, function () use ($variant) {
+        return CacheHelper::remember([self::CACHE_TAG, 'config'], $configKey, self::CACHE_TTL, function () use ($variant) {
             $config = $this->config[$this->configKey];
             if ($variant && isset($config['variants'][$variant])) {
                 $config = array_merge($config, $config['variants'][$variant]);
@@ -168,7 +169,7 @@ class ThumbnailService
             'strategy' => $config['subdirectory_strategy'] ?? 'hash_prefix'
         ]) . $this->sourcePath . ($variant ?? ''));
 
-        return Cache::tags([self::CACHE_TAG, 'paths'])->remember($pathKey, self::CACHE_TTL, function () use ($config, $variant) {
+        return CacheHelper::remember([self::CACHE_TAG, 'paths'], $pathKey, self::CACHE_TTL, function () use ($config, $variant) {
             return $this->generateThumbnailPath($config, $variant);
         });
     }
@@ -197,7 +198,7 @@ class ThumbnailService
     {
         $existsKey = 'thumb_exists:' . crc32($path);
 
-        return Cache::tags([self::CACHE_TAG, 'exists'])->remember($existsKey, self::CACHE_TTL, function () use ($disk, $path) {
+        return CacheHelper::remember([self::CACHE_TAG, 'exists'], $existsKey, self::CACHE_TTL, function () use ($disk, $path) {
             try {
                 return $disk->exists($path);
             } catch (\Exception $e) {
@@ -214,7 +215,7 @@ class ThumbnailService
     protected function invalidateExistsCache(string $path): void
     {
         $existsKey = 'thumb_exists:' . crc32($path);
-        Cache::tags([self::CACHE_TAG, 'exists'])->forget($existsKey);
+        CacheHelper::forget([self::CACHE_TAG, 'exists'], $existsKey);
     }
 
     /**
@@ -226,7 +227,7 @@ class ThumbnailService
     protected function setExistsCache(string $path, bool $exists): void
     {
         $existsKey = 'thumb_exists:' . crc32($path);
-        Cache::tags([self::CACHE_TAG, 'exists'])->put($existsKey, $exists, self::CACHE_TTL);
+        CacheHelper::put([self::CACHE_TAG, 'exists'], $existsKey, $exists, self::CACHE_TTL);
     }
 
     /**
@@ -332,7 +333,7 @@ class ThumbnailService
 
                 if ($this->thumbnailExistsOptimized($disk, $thumbnailPath)) {
                     $url = $disk->url($thumbnailPath);
-                    Cache::tags([self::CACHE_TAG, $preset])->put($cacheKey, $url, self::CACHE_TTL);
+                    CacheHelper::put([self::CACHE_TAG, $preset], $cacheKey, $url, self::CACHE_TTL);
                     $results['warmed']++;
                 }
 
@@ -345,7 +346,7 @@ class ThumbnailService
 
                         if ($this->thumbnailExistsOptimized($disk, $variantPath)) {
                             $variantUrl = $disk->url($variantPath);
-                            Cache::tags([self::CACHE_TAG, $preset])->put($variantKey, $variantUrl, self::CACHE_TTL);
+                            CacheHelper::put([self::CACHE_TAG, $preset], $variantKey, $variantUrl, self::CACHE_TTL);
                             $results['warmed']++;
                         }
                     } else {
@@ -654,7 +655,7 @@ class ThumbnailService
             ]);
             */
             if (config('thumbnails.cache_urls', true)) {
-                $cachedUrl = Cache::tags([self::CACHE_TAG, $this->configKey])->get($cacheKey);
+                $cachedUrl = CacheHelper::get([self::CACHE_TAG, $this->configKey], $cacheKey);
                 if ($cachedUrl) {
                     //   \Log::info('✅ CACHE HIT', ['key' => $cacheKey, 'url' => $cachedUrl]);
                     $this->logTime($startTime, 'cache_hit_debug', $variant);
@@ -678,10 +679,10 @@ class ThumbnailService
                         'ttl' => self::CACHE_TTL
                     ]);
                     */
-                    Cache::tags([self::CACHE_TAG, $this->configKey])->put($cacheKey, $url, self::CACHE_TTL);
+                    CacheHelper::put([self::CACHE_TAG, $this->configKey], $cacheKey, $url, self::CACHE_TTL);
 
                     // Verifica immediata
-                    $verify = Cache::tags([self::CACHE_TAG, $this->configKey])->get($cacheKey);
+                    $verify = CacheHelper::get([self::CACHE_TAG, $this->configKey], $cacheKey);
                     /*
                     \Log::info('🔍 CACHE VERIFY', [
                         'key' => $cacheKey,
@@ -702,7 +703,7 @@ class ThumbnailService
 
             if (config('thumbnails.cache_urls', true)) {
                 //\Log::info('💾 SAVING GENERATED TO CACHE', ['key' => $cacheKey, 'url' => $url]);
-                Cache::tags([self::CACHE_TAG, $this->configKey])->put($cacheKey, $url, self::CACHE_TTL);
+                CacheHelper::put([self::CACHE_TAG, $this->configKey], $cacheKey, $url, self::CACHE_TTL);
             }
 
             $this->invalidateExistsCache($thumbnailPath);
@@ -714,7 +715,7 @@ class ThumbnailService
             $this->logWarning('Thumbnail failed, using fallback', $e, $variant);
             $fallbackUrl = $this->getFallbackUrl();
             if (config('thumbnails.cache_urls', true)) {
-                Cache::tags([self::CACHE_TAG, $this->configKey])->put($cacheKey ?? $this->getCacheKeyOptimized($variant), $fallbackUrl, 300);
+                CacheHelper::put([self::CACHE_TAG, $this->configKey], $cacheKey ?? $this->getCacheKeyOptimized($variant), $fallbackUrl, 300);
             }
             return $fallbackUrl;
         }
@@ -742,7 +743,7 @@ class ThumbnailService
 
         $cacheKey = $this->getCacheKeyOptimized(null);
         //\Log::info('🗑️ FORGETTING', ['key' => $cacheKey]);
-        Cache::tags([self::CACHE_TAG, $this->configKey])->forget($cacheKey);
+        CacheHelper::forget([self::CACHE_TAG, $this->configKey], $cacheKey);
 
         // Clear cache correlate
         try {
@@ -751,7 +752,7 @@ class ThumbnailService
 
             // Clear cache esistenza
             $existsKey = 'thumb_exists:' . crc32($thumbnailPath);
-            Cache::tags([self::CACHE_TAG, 'exists'])->forget($existsKey);
+            CacheHelper::forget([self::CACHE_TAG, 'exists'], $existsKey);
             /*
             Log::info('🗑️ Cleared Related Caches', [
                 'exists_key' => $existsKey,
@@ -761,7 +762,7 @@ class ThumbnailService
             if (isset($config['variants'])) {
                 foreach (array_keys($config['variants']) as $variant) {
                     $variantKey = $this->getCacheKeyOptimized($variant);
-                    Cache::tags([self::CACHE_TAG, $this->configKey])->forget($variantKey);
+                    CacheHelper::forget([self::CACHE_TAG, $this->configKey], $variantKey);
                     /*
                     Log::info('🗑️ Cleared Variant Cache', [
                         'variant' => $variant,
@@ -834,7 +835,7 @@ class ThumbnailService
         }
 
         // Only flush thumbnail-related cache, not entire application cache
-        Cache::tags([self::CACHE_TAG])->flush();
+        CacheHelper::flush([self::CACHE_TAG]);
         return $purgedCount;
     }
 

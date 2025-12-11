@@ -1,5 +1,6 @@
 {
     "name": "askancy/laravel-smart-thumbnails",
+    "version": "1.1.0",
     "description": "Advanced thumbnail generation with smart cropping for Laravel applications",
     "type": "library",
     "license": "MIT",
@@ -10,7 +11,9 @@
         "crop",
         "smart-crop",
         "intervention",
-        "resize"
+        "resize",
+        "avif",
+        "webp"
     ],
   "authors": [
     {
@@ -26,8 +29,8 @@
         "ext-gd": "*"
     },
     "suggest": {
-        "intervention/image-imagick": "For better image quality and more features (requires ext-imagick)",
-        "ext-imagick": "For advanced image processing capabilities",
+        "intervention/image-imagick": "For better image quality, AVIF format support, and more features (requires ext-imagick)",
+        "ext-imagick": "For advanced image processing capabilities and AVIF format support",
         "ext-redis": "For cache tagging support with Redis driver",
         "ext-memcached": "For cache tagging support with Memcached driver"
     },

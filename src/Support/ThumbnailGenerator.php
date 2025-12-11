@@ -66,6 +66,11 @@ class ThumbnailGenerator
         $format = strtolower($format);
 
         switch ($format) {
+            case 'avif':
+                // AVIF format - requires ImageMagick driver
+                // Quality: 0-100 (higher is better, 85 is a good balance)
+                return $image->toAvif($quality)->toString();
+
             case 'webp':
                 $lossless = config('thumbnails.webp_lossless', false);
                 return $image->toWebp($lossless ? 100 : $quality)->toString();

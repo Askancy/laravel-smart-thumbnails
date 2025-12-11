@@ -13,6 +13,7 @@ The most **advanced thumbnail generation package** for Laravel with intelligent 
 ## ✨ What's New in Latest Version
 
 ### Major Improvements
+- 🖼️ **AVIF Format Support** - Next-generation image format with 50% smaller file sizes than JPEG
 - 🎯 **Intervention Image 3.x Support** - Full compatibility with the latest Intervention Image version
 - 🏷️ **Smart Cache Tagging** - Targeted cache invalidation without affecting your entire application cache
 - 🧩 **Refactored Architecture** - New `ThumbnailGenerator` utility class for better code reusability
@@ -34,6 +35,7 @@ The most **advanced thumbnail generation package** for Laravel with intelligent 
 - 📁 **Subdirectory Organization** - Handles millions of thumbnails with optimal filesystem performance
 - 💾 **Multi-Disk Support** - S3, local, scoped disks, and custom storage solutions
 - 🎨 **Multiple Variants** - Responsive design with preset variants
+- 🖼️ **Modern Formats** - AVIF, WebP, JPEG, PNG support with optimal compression
 - 🚀 **Lazy Generation** - Thumbnails created only when needed
 - 🔄 **Intelligent Fallbacks** - Original image → Custom placeholder → Generated placeholder
 - ⚡ **High Performance** - Optimized for large-scale applications
@@ -45,7 +47,7 @@ The most **advanced thumbnail generation package** for Laravel with intelligent 
 - PHP 8.1+
 - Laravel 10.0, 11.0, or 12.0
 - Intervention Image 3.9+
-- GD extension (required) or ImageMagick extension (recommended)
+- GD extension (required) or ImageMagick extension (recommended, **required for AVIF format**)
 - Redis or Memcached extension (optional, for cache tagging support)
 
 ## 📦 Installation
@@ -159,6 +161,50 @@ The package offers **bulletproof error handling** that ensures your application 
     ],
 ],
 ```
+
+### **AVIF Format Support**
+
+The package now supports **AVIF** format for next-generation image compression with superior quality-to-size ratio.
+
+```php
+// config/thumbnails.php
+'presets' => [
+    'gallery' => [
+        'format' => 'avif', // Use AVIF for maximum compression
+        'smartcrop' => '800x600',
+        'destination' => ['disk' => 'public', 'path' => 'thumbnails/gallery/'],
+        'quality' => 85, // AVIF quality (0-100, 85 recommended)
+        'smart_crop_enabled' => true,
+    ],
+],
+```
+
+**Requirements for AVIF:**
+- **ImageMagick driver required** (GD does not support AVIF)
+- ImageMagick library compiled with AVIF support
+- Install: `pecl install imagick`
+
+**Enable ImageMagick driver:**
+
+```php
+// config/thumbnails.php
+'intervention_driver' => 'imagick', // Changed from 'gd'
+```
+
+**AVIF Benefits:**
+- 📉 **50% smaller** file sizes vs JPEG at same quality
+- 📉 **30% smaller** than WebP in most cases
+- 🎨 **Better quality** at lower file sizes
+- 🌐 **Growing browser support** (90%+ as of 2025)
+
+**Format Comparison:**
+
+| Format | File Size | Quality | Browser Support | Best For |
+|--------|-----------|---------|-----------------|----------|
+| **AVIF** | Smallest | Excellent | 90%+ | Modern web, performance-critical |
+| WebP | Small | Very Good | 95%+ | General purpose, wide support |
+| JPEG | Medium | Good | 100% | Legacy compatibility |
+| PNG | Large | Perfect | 100% | Transparency, lossless |
 
 ## 📁 Subdirectory Organization
 
@@ -274,7 +320,7 @@ php artisan tinker
 ### **Security Features**
 
 ```php
-'allowed_extensions' => ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+'allowed_extensions' => ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'],
 'max_file_size' => 10 * 1024 * 1024, // 10MB
 'validate_image_content' => true,
 'sanitize_filenames' => true,
@@ -384,7 +430,7 @@ If using `file` or `database` cache drivers, consider upgrading to Redis or Memc
 - ❌ File (falls back to non-tagged cache)
 - ❌ Database (falls back to non-tagged cache)
 
-**3. Optional: Enable ImageMagick** (Better quality)
+**3. Optional: Enable ImageMagick** (Better quality + AVIF support)
 
 ```bash
 # Install ImageMagick extension
@@ -394,6 +440,8 @@ pecl install imagick
 // config/thumbnails.php
 'intervention_driver' => 'imagick', // Changed from 'gd'
 ```
+
+**Note:** ImageMagick is **required** if you want to use the new **AVIF format**, which offers superior compression and quality. See the [AVIF Format Support](#avif-format-support) section for details.
 
 **4. Verify Configuration**
 
@@ -470,8 +518,9 @@ $metrics = Thumbnail::set('gallery')->src('photo.jpg')->getPerformanceMetrics();
 // Returns execution time, memory usage, cache hit/miss info
 ```
 
-## 🚀 Roadmap
+## 🚀 Roadmap & Development Status
 
+### Smart Crop Enhancements
 We have exciting enhancements planned for the smart crop algorithm! See [SMART_CROP_ROADMAP.md](SMART_CROP_ROADMAP.md) for:
 
 - 🎯 **Edge Detection** - Sobel filter for identifying image edges
@@ -479,6 +528,13 @@ We have exciting enhancements planned for the smart crop algorithm! See [SMART_C
 - 👤 **Face Detection** - Automatic face preservation
 - 🗺️ **Saliency Maps** - Visual attention modeling
 - 🤖 **Machine Learning** - AI-powered object detection
+
+### Current Development Tasks
+See [TODO.md](TODO.md) for the complete development roadmap including:
+- ✅ Core improvements (Intervention Image 3.x, cache tagging) - **COMPLETED**
+- 🔴 High priority tasks (tests, CI/CD, documentation)
+- 🟡 Medium priority (code quality, examples)
+- 🟢 Future features (CDN integration, admin panel)
 
 Contributions welcome! Check the roadmap for implementation details and priorities.
 
