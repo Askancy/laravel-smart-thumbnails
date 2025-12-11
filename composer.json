@@ -1,6 +1,6 @@
 {
     "name": "askancy/laravel-smart-thumbnails",
-    "version": "1.1.0",
+    "version": "2.0",
     "description": "Advanced thumbnail generation with smart cropping for Laravel applications",
     "type": "library",
     "license": "MIT",
@@ -70,4 +70,5 @@
     "minimum-stability": "stable",
     "prefer-stable": true
 }
+
 
