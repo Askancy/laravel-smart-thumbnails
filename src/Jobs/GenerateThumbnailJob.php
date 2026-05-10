@@ -2,20 +2,23 @@
 
 namespace Askancy\LaravelSmartThumbnails\Jobs;
 
+use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
-use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
-use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
 
 class GenerateThumbnailJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable;
+    use InteractsWithQueue;
+    use Queueable;
+    use SerializesModels;
 
     protected $sourcePath;
     protected $sourceDisk;
@@ -58,7 +61,7 @@ class GenerateThumbnailJob implements ShouldQueue
             // Check if thumbnail already exists (race condition protection)
             if (Storage::disk($this->config['destination']['disk'])->exists($this->thumbnailPath)) {
                 Log::info('Thumbnail already exists, skipping generation', [
-                    'path' => $this->thumbnailPath
+                    'path' => $this->thumbnailPath,
                 ]);
                 return;
             }
@@ -114,7 +117,7 @@ class GenerateThumbnailJob implements ShouldQueue
                         // Fallback to basic crop if smart crop fails
                         Log::warning('Smart crop failed, using basic crop', [
                             'error' => $e->getMessage(),
-                            'source' => $this->sourcePath
+                            'source' => $this->sourcePath,
                         ]);
                         $image = ThumbnailGenerator::applyBasicCrop($image, $width, $height);
                     }
@@ -145,7 +148,7 @@ class GenerateThumbnailJob implements ShouldQueue
                 'destination' => $this->thumbnailPath,
                 'config' => $this->configKey,
                 'variant' => $this->variant,
-                'execution_time' => round($executionTime * 1000, 2) . 'ms'
+                'execution_time' => round($executionTime * 1000, 2) . 'ms',
             ]);
 
             // Cleanup memory (Intervention Image 3.x manages this automatically)
@@ -157,7 +160,7 @@ class GenerateThumbnailJob implements ShouldQueue
                 'config' => $this->configKey,
                 'variant' => $this->variant,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             throw $e;
@@ -177,7 +180,7 @@ class GenerateThumbnailJob implements ShouldQueue
             'destination' => $this->thumbnailPath,
             'config' => $this->configKey,
             'variant' => $this->variant,
-            'error' => $exception->getMessage()
+            'error' => $exception->getMessage(),
         ]);
     }
 }

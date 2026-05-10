@@ -146,13 +146,13 @@ class CacheHelper
             Log::warning('Cache flush requested but current driver does not support tagging', [
                 'tags' => $tags,
                 'driver' => config('cache.default'),
-                'recommendation' => 'Consider using Redis or Memcached for better cache performance with thumbnails'
+                'recommendation' => 'Consider using Redis or Memcached for better cache performance with thumbnails',
             ]);
 
             // Optional: Clear entire cache if explicitly requested
             if (in_array('thumbnails', $tags) && config('thumbnails.allow_full_cache_clear', false)) {
                 Log::warning('Clearing entire application cache due to thumbnail purge', [
-                    'driver' => config('cache.default')
+                    'driver' => config('cache.default'),
                 ]);
                 Cache::flush();
             }

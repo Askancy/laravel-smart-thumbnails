@@ -2,14 +2,11 @@
 
 namespace Askancy\LaravelSmartThumbnails\Services;
 
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
-use Intervention\Image\ImageManager;
-use Intervention\Image\Interfaces\ImageInterface;
-use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
-use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
 use Askancy\LaravelSmartThumbnails\Support\CacheHelper;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class ThumbnailService
 {
@@ -166,7 +163,7 @@ class ThumbnailService
             'smartcrop' => $config['smartcrop'],
             'format' => $config['format'] ?? 'jpg',
             'destination' => $config['destination']['path'],
-            'strategy' => $config['subdirectory_strategy'] ?? 'hash_prefix'
+            'strategy' => $config['subdirectory_strategy'] ?? 'hash_prefix',
         ]) . $this->sourcePath . ($variant ?? ''));
 
         return CacheHelper::remember([self::CACHE_TAG, 'paths'], $pathKey, self::CACHE_TTL, function () use ($config, $variant) {
@@ -523,7 +520,7 @@ class ThumbnailService
             '/images/no-image.png',
             '/images/placeholder.png',
             '/images/thumbnail-error.png',
-            'data:image/svg+xml;base64,' . base64_encode('<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#f8f9fa"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="#6c757d">No Image</text></svg>')
+            'data:image/svg+xml;base64,' . base64_encode('<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#f8f9fa"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="#6c757d">No Image</text></svg>'),
         ];
 
         return end($staticPlaceholders);
@@ -713,11 +710,11 @@ class ThumbnailService
             return $url;
         } catch (\Exception $e) {
             $this->logWarning('Thumbnail failed, using fallback', $e, $variant);
-            
+
             if (!$this->silentMode) {
                 throw $e;
             }
-            
+
             $fallbackUrl = $this->getFallbackUrl();
             if (config('thumbnails.cache_urls', true)) {
                 CacheHelper::put([self::CACHE_TAG, $this->configKey], $cacheKey ?? $this->getCacheKeyOptimized($variant), $fallbackUrl, 300);
@@ -778,7 +775,7 @@ class ThumbnailService
             }
         } catch (\Exception $e) {
             Log::error('Error during cache clear', [
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
         }
     }
@@ -788,7 +785,7 @@ class ThumbnailService
     {
         Log::info('🔄 Regenerate If Needed Called', [
             'variant' => $variant,
-            'caller' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2)
+            'caller' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2),
         ]);
 
         if ($this->isUpToDate($variant)) {
@@ -891,7 +888,7 @@ class ThumbnailService
         } catch (\Exception $e) {
             if (config('thumbnails.log_errors', true)) {
                 Log::warning("Could not clean empty directories", [
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
@@ -953,7 +950,7 @@ class ThumbnailService
                 if (!isset($distribution[$directory])) {
                     $distribution[$directory] = [
                         'count' => 0,
-                        'size' => 0
+                        'size' => 0,
                     ];
                 }
                 $distribution[$directory]['count']++;
@@ -962,7 +959,7 @@ class ThumbnailService
                 if (!isset($sizeByFormat[$extension])) {
                     $sizeByFormat[$extension] = [
                         'count' => 0,
-                        'size' => 0
+                        'size' => 0,
                     ];
                 }
                 $sizeByFormat[$extension]['count']++;
@@ -981,7 +978,7 @@ class ThumbnailService
                 'distribution_by_directory' => $distribution,
                 'distribution_by_format' => $sizeByFormat,
                 'largest_directories' => $this->getLargestDirectories($distribution, 10),
-                'strategy' => $config['subdirectory_strategy'] ?? config('thumbnails.default_subdirectory_strategy', 'hash_prefix')
+                'strategy' => $config['subdirectory_strategy'] ?? config('thumbnails.default_subdirectory_strategy', 'hash_prefix'),
             ];
         } catch (\Exception $e) {
             throw new \Exception("Could not analyze distribution for preset '{$preset}': " . $e->getMessage());
@@ -1004,7 +1001,7 @@ class ThumbnailService
             'presets' => [],
             'total_files' => 0,
             'total_size' => 0,
-            'disk_usage' => []
+            'disk_usage' => [],
         ];
 
         foreach (array_keys($this->config) as $preset) {
@@ -1019,7 +1016,7 @@ class ThumbnailService
                     $stats['disk_usage'][$disk] = [
                         'files' => 0,
                         'size' => 0,
-                        'presets' => []
+                        'presets' => [],
                     ];
                 }
                 $stats['disk_usage'][$disk]['files'] += $presetStats['total_files'];
@@ -1042,7 +1039,7 @@ class ThumbnailService
             'duplicates_removed' => 0,
             'orphaned_removed' => 0,
             'empty_dirs_removed' => 0,
-            'space_freed' => 0
+            'space_freed' => 0,
         ];
 
         foreach ($this->config as $presetName => $config) {
@@ -1169,7 +1166,7 @@ class ThumbnailService
             'valid' => empty($issues),
             'issues' => $issues,
             'presets_count' => count($this->config),
-            'total_variants' => $this->countTotalVariants()
+            'total_variants' => $this->countTotalVariants(),
         ];
     }
 
@@ -1195,7 +1192,7 @@ class ThumbnailService
                 $results[$strategy] = [
                     'success' => true,
                     'subdirectory' => $subdir,
-                    'error' => null
+                    'error' => null,
                 ];
 
                 if ($this->configKey) {
@@ -1213,7 +1210,7 @@ class ThumbnailService
                 $results[$strategy] = [
                     'success' => false,
                     'subdirectory' => null,
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
                 ];
             }
         }
@@ -1245,7 +1242,7 @@ class ThumbnailService
                 'dimensions' => $config['smartcrop'],
                 'format' => $config['format'] ?? config('thumbnails.default_format', 'jpg'),
                 'quality' => $config['quality'] ?? config('thumbnails.default_quality', 85),
-                'smart_crop_enabled' => $config['smart_crop_enabled'] ?? config('thumbnails.enable_smart_crop', true)
+                'smart_crop_enabled' => $config['smart_crop_enabled'] ?? config('thumbnails.enable_smart_crop', true),
             ];
 
             $pathInfo = pathinfo($this->sourcePath);
@@ -1275,7 +1272,7 @@ class ThumbnailService
             return [
                 'error' => $e->getMessage(),
                 'config_key' => $this->configKey,
-                'source_path' => $this->sourcePath
+                'source_path' => $this->sourcePath,
             ];
         }
     }
@@ -1286,7 +1283,7 @@ class ThumbnailService
             'generated' => 0,
             'skipped' => 0,
             'errors' => 0,
-            'details' => []
+            'details' => [],
         ];
 
         foreach ($images as $imagePath) {
@@ -1336,7 +1333,7 @@ class ThumbnailService
                 'peak_memory_human' => ThumbnailGenerator::formatBytes(memory_get_peak_usage(true)),
                 'config_key' => $this->configKey,
                 'variant' => $variant,
-                'cache_enabled' => config('thumbnails.cache_urls', true)
+                'cache_enabled' => config('thumbnails.cache_urls', true),
             ];
         } catch (\Exception $e) {
             $endTime = microtime(true);
@@ -1349,7 +1346,7 @@ class ThumbnailService
                 'memory_used_bytes' => $endMemory - $startMemory,
                 'memory_used_human' => ThumbnailGenerator::formatBytes($endMemory - $startMemory),
                 'config_key' => $this->configKey,
-                'variant' => $variant
+                'variant' => $variant,
             ];
         }
     }

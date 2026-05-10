@@ -26,7 +26,7 @@ return [
     | Subdirectory Strategy
     |--------------------------------------------------------------------------
     | Strategy for organizing thumbnails in subdirectories to optimize filesystem performance:
-    | 
+    |
     | 'hash_prefix'    - a/b/ based on MD5 hash (recommended for high volume)
     | 'date_based'     - 2025/01/28/ based on creation date
     | 'filename_prefix'- ab/cd/ based on first filename characters
@@ -117,7 +117,7 @@ return [
                 'thumbnail' => ['smartcrop' => '150x150', 'quality' => 80],
                 'medium' => ['smartcrop' => '400x300', 'quality' => 85],
                 'large' => ['smartcrop' => '800x600', 'quality' => 90],
-            ]
+            ],
         ],
 
         'products' => [
@@ -133,7 +133,7 @@ return [
                 'card' => ['smartcrop' => '250x250', 'quality' => 85],
                 'detail' => ['smartcrop' => '600x600', 'quality' => 95],
                 'zoom' => ['smartcrop' => '1200x1200', 'quality' => 95],
-            ]
+            ],
         ],
 
         'avatars' => [
@@ -149,7 +149,7 @@ return [
                 'small' => ['smartcrop' => '64x64', 'quality' => 75],
                 'medium' => ['smartcrop' => '128x128', 'quality' => 80],
                 'large' => ['smartcrop' => '256x256', 'quality' => 85],
-            ]
+            ],
         ],
 
         'blog' => [
@@ -164,7 +164,7 @@ return [
                 'card' => ['smartcrop' => '350x200', 'quality' => 80],
                 'hero' => ['smartcrop' => '1200x675', 'quality' => 90],
                 'social' => ['smartcrop' => '1200x630', 'quality' => 85], // Social media sharing
-            ]
+            ],
         ],
 
         'slider' => [
@@ -179,7 +179,7 @@ return [
                 'mobile' => ['smartcrop' => '768x400', 'quality' => 80],
                 'tablet' => ['smartcrop' => '1024x540', 'quality' => 85],
                 'desktop' => ['smartcrop' => '1920x800', 'quality' => 90],
-            ]
+            ],
         ],
     ],
 

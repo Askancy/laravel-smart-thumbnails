@@ -3,7 +3,6 @@
 namespace Askancy\LaravelSmartThumbnails\Services;
 
 use Intervention\Image\Interfaces\ImageInterface;
-use Intervention\Image\ImageManager;
 
 /**
  * Smart Crop Service
@@ -79,7 +78,7 @@ class SmartCropService
                 'cropWidth' => $width,
                 'cropHeight' => $height,
                 'cropX' => 0,
-                'cropY' => 0
+                'cropY' => 0,
             ];
         }
 
@@ -102,7 +101,7 @@ class SmartCropService
             'cropWidth' => (int) round($cropWidth),
             'cropHeight' => (int) round($cropHeight),
             'cropX' => (int) round($cropX),
-            'cropY' => (int) round($cropY)
+            'cropY' => (int) round($cropY),
         ];
     }
 

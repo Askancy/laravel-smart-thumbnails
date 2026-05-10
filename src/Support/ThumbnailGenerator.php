@@ -2,8 +2,8 @@
 
 namespace Askancy\LaravelSmartThumbnails\Support;
 
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Interfaces\ImageInterface;
 
@@ -261,7 +261,7 @@ class ThumbnailGenerator
                     return self::generateHashPrefixSubdirectory($filename);
                 } catch (\Exception $fallbackError) {
                     Log::error("Even hash_prefix subdirectory failed", [
-                        'error' => $fallbackError->getMessage()
+                        'error' => $fallbackError->getMessage(),
                     ]);
                     return '';
                 }
@@ -329,7 +329,7 @@ class ThumbnailGenerator
                 'error' => $e->getMessage(),
                 'php_version' => PHP_VERSION,
                 'now_available' => function_exists('now'),
-                'date_available' => function_exists('date')
+                'date_available' => function_exists('date'),
             ]);
 
             try {

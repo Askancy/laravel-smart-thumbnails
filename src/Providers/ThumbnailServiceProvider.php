@@ -2,10 +2,10 @@
 
 namespace Askancy\LaravelSmartThumbnails\Providers;
 
-use Illuminate\Support\ServiceProvider;
-use Askancy\LaravelSmartThumbnails\Services\ThumbnailService;
-use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
 use Askancy\LaravelSmartThumbnails\Commands\ThumbnailPurgeCommand;
+use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
+use Askancy\LaravelSmartThumbnails\Services\ThumbnailService;
+use Illuminate\Support\ServiceProvider;
 
 class ThumbnailServiceProvider extends ServiceProvider
 {

@@ -2,8 +2,8 @@
 
 namespace Askancy\LaravelSmartThumbnails\Commands;
 
-use Illuminate\Console\Command;
 use Askancy\LaravelSmartThumbnails\Services\ThumbnailService;
+use Illuminate\Console\Command;
 
 class ThumbnailPurgeCommand extends Command
 {
