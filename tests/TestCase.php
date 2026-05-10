@@ -28,6 +28,7 @@ abstract class TestCase extends BaseTestCase
             'smartcrop' => '100x100',
             'destination' => ['disk' => 'local', 'path' => 'test-crops/'],
             'quality' => 85,
+            'subdirectory_strategy' => 'none',
         ]);
 
         $app['config']->set('filesystems.disks.local', [

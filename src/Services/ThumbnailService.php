@@ -713,6 +713,11 @@ class ThumbnailService
             return $url;
         } catch (\Exception $e) {
             $this->logWarning('Thumbnail failed, using fallback', $e, $variant);
+            
+            if (!$this->silentMode) {
+                throw $e;
+            }
+            
             $fallbackUrl = $this->getFallbackUrl();
             if (config('thumbnails.cache_urls', true)) {
                 CacheHelper::put([self::CACHE_TAG, $this->configKey], $cacheKey ?? $this->getCacheKeyOptimized($variant), $fallbackUrl, 300);

@@ -5,7 +5,6 @@ namespace Askancy\LaravelSmartThumbnails\Tests\Feature;
 use Askancy\LaravelSmartThumbnails\Tests\TestCase;
 use Askancy\LaravelSmartThumbnails\Facades\Thumbnail;
 use Illuminate\Support\Facades\Storage;
-use Intervention\Image\ImageManagerStatic as Image;
 
 class ThumbnailIntegrationTest extends TestCase
 {
@@ -17,8 +16,9 @@ class ThumbnailIntegrationTest extends TestCase
         Storage::fake('local');
 
         // Crea un'immagine di test
-        $testImage = Image::canvas(300, 200, '#ff0000');
-        Storage::disk('local')->put('test-image.jpg', $testImage->encode('jpg')->getContents());
+        $manager = \Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator::createImageManager();
+        $testImage = $manager->create(300, 200)->fill('#ff0000');
+        Storage::disk('local')->put('test-image.jpg', $testImage->toJpeg()->toString());
     }
 
     public function test_can_generate_thumbnail()
@@ -28,7 +28,7 @@ class ThumbnailIntegrationTest extends TestCase
             ->url();
 
         $this->assertNotEmpty($url);
-        $this->assertStringContains('test-image_100_100.jpg', $url);
+        $this->assertStringContainsString('test-image_100_100.jpg', $url);
     }
 
     public function test_thumbnail_file_is_created()
@@ -71,6 +71,7 @@ class ThumbnailIntegrationTest extends TestCase
 
         Thumbnail::set('test')
             ->src('non-existent.jpg', 'local')
+            ->strict()
             ->url();
     }
 
