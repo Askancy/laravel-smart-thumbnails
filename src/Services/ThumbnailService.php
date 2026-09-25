@@ -3,6 +3,7 @@
 namespace Askancy\LaravelSmartThumbnails\Services;
 
 use Askancy\LaravelSmartThumbnails\Support\CacheHelper;
+use Askancy\LaravelSmartThumbnails\Support\PixelBudget;
 use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -369,6 +370,44 @@ class ThumbnailService
      * @param string $thumbnailPath Destination thumbnail path
      * @throws \Exception If generation fails
      */
+    /**
+     * Refuses a source image with more pixels than the budget allows.
+     *
+     * The decoder allocates width x height x 4 bytes: a few MB of PNG can ask
+     * for half a gigabyte and kill the request with "Allowed memory size
+     * exhausted" — and a thumbnail is never worth a dead request. The
+     * exception is caught upstream, so the caller falls back to the original
+     * image.
+     *
+     * Set thumbnails.max_megapixels to 0 to disable the check.
+     */
+    protected function assertWithinPixelBudget(string $imageContent): void
+    {
+        $budget = PixelBudget::configuredBudget();
+
+        if (!PixelBudget::exceeds($imageContent, $budget)) {
+            return;
+        }
+
+        $megapixels = round((float) PixelBudget::megapixels($imageContent), 1);
+
+        if (config('thumbnails.log_errors', true)) {
+            Log::warning('Source image refused: too many pixels for a thumbnail', [
+                'source' => $this->sourcePath,
+                'disk' => $this->sourceDisk,
+                'megapixels' => $megapixels,
+                'budget_megapixels' => $budget,
+            ]);
+        }
+
+        throw new \Exception(sprintf(
+            'Source image too large to decode: %s megapixels, budget is %s (%s)',
+            $megapixels,
+            $budget,
+            $this->sourcePath
+        ));
+    }
+
     protected function generateThumbnailSafe(array $config, string $thumbnailPath): void
     {
         $timeout = config('thumbnails.timeout', 30);
@@ -386,6 +425,8 @@ class ThumbnailService
             if (empty($imageContent)) {
                 throw new \Exception("Source image is empty: {$this->sourcePath}");
             }
+
+            $this->assertWithinPixelBudget($imageContent);
 
             // Read image using Intervention Image 3.x
             $image = $this->imageManager->read($imageContent);
