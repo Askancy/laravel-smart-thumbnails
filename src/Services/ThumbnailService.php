@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Intervention\Image\ImageManagerStatic as Image;
 use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
+use Askancy\LaravelSmartThumbnails\Support\PixelBudget;
 
 class ThumbnailService
 {
@@ -149,6 +150,43 @@ class ThumbnailService
     /**
      * Path generation con cache persistente
      */
+    /**
+     * Refuses a source image with more pixels than the budget allows.
+     *
+     * GD allocates width x height x 4 bytes: a few MB of PNG can ask for half
+     * a gigabyte and kill the request with "Allowed memory size exhausted" —
+     * and a thumbnail is never worth a dead request. The exception is caught
+     * upstream, so the caller falls back to the original image.
+     *
+     * Set thumbnails.max_megapixels to 0 to disable the check.
+     */
+    protected function assertWithinPixelBudget(string $imageContent): void
+    {
+        $budget = PixelBudget::configuredBudget();
+
+        if (!PixelBudget::exceeds($imageContent, $budget)) {
+            return;
+        }
+
+        $megapixels = PixelBudget::megapixels($imageContent);
+
+        if (config('thumbnails.log_errors', true)) {
+            Log::warning('Source image refused: too many pixels for a thumbnail', [
+                'source' => $this->sourcePath,
+                'disk' => $this->sourceDisk,
+                'megapixels' => round((float) $megapixels, 1),
+                'budget_megapixels' => $budget,
+            ]);
+        }
+
+        throw new \Exception(sprintf(
+            'Source image too large to decode: %s megapixels, budget is %s (%s)',
+            round((float) $megapixels, 1),
+            $budget,
+            $this->sourcePath
+        ));
+    }
+
     protected function generateThumbnailPathOptimized(array $config, ?string $variant): string
     {
         $pathKey = 'path:' . crc32(serialize([
@@ -369,6 +407,8 @@ class ThumbnailService
             if (empty($imageContent)) {
                 throw new \Exception("Source image is empty: {$this->sourcePath}");
             }
+
+            $this->assertWithinPixelBudget($imageContent);
 
             $image = Image::make($imageContent);
 

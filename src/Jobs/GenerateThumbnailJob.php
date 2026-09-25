@@ -10,6 +10,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Intervention\Image\ImageManagerStatic as Image;
+use Askancy\LaravelSmartThumbnails\Support\PixelBudget;
 use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
 
 class GenerateThumbnailJob implements ShouldQueue
@@ -74,6 +75,30 @@ class GenerateThumbnailJob implements ShouldQueue
 
             if (empty($imageContent)) {
                 throw new \Exception("Source image is empty: {$this->sourcePath}");
+            }
+
+            // Same guard as ThumbnailService: GD allocates width x height x 4
+            // bytes and a few MB of PNG can exhaust the worker's memory. A
+            // dead worker leaves no trace in failed_jobs, so it is cheaper to
+            // refuse the image and log why.
+            $budget = PixelBudget::configuredBudget();
+
+            if (PixelBudget::exceeds($imageContent, $budget)) {
+                $megapixels = round((float) PixelBudget::megapixels($imageContent), 1);
+
+                Log::warning('Source image refused: too many pixels for a thumbnail', [
+                    'source' => $this->sourcePath,
+                    'disk' => $this->sourceDisk,
+                    'megapixels' => $megapixels,
+                    'budget_megapixels' => $budget,
+                ]);
+
+                throw new \Exception(sprintf(
+                    'Source image too large to decode: %s megapixels, budget is %s (%s)',
+                    $megapixels,
+                    $budget,
+                    $this->sourcePath
+                ));
             }
 
             $image = Image::make($imageContent);

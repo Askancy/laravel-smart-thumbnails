@@ -9,6 +9,19 @@ return [
     'default_quality' => 85,
     'default_format' => 'webp',
     'enable_smart_crop' => true,
+
+    /*
+     * Pixel budget for a source image, in megapixels.
+     *
+     * The decoder allocates width x height x 4 bytes regardless of how small
+     * the compressed file is: a few MB of PNG can ask for half a gigabyte and
+     * kill the request with "Allowed memory size exhausted". Above this budget
+     * the source is refused before it is decoded, the caller falls back to the
+     * original image, and the reason is logged.
+     *
+     * 60 megapixels needs roughly 240 MB of RAM. Set 0 to disable the check.
+     */
+    'max_megapixels' => 60,
     'cache_thumbnails' => true,
 
     /*
