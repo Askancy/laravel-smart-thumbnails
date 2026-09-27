@@ -21,8 +21,8 @@
     }
     ],
     "require": {
-        "php": "^8.1",
-        "laravel/framework": "^10.0|^11.0|^12.0",
+        "php": "^8.2",
+        "laravel/framework": "^11.0|^12.0",
         "intervention/image": "^3.9",
         "ext-gd": "*"
     },
@@ -32,8 +32,8 @@
         "ext-memcached": "For cache tagging support with Memcached driver"
     },
     "require-dev": {
-        "orchestra/testbench": "^8.0|^9.0",
-        "phpunit/phpunit": "^10.0|^11.0",
+        "orchestra/testbench": "^9.0|^10.0",
+        "phpunit/phpunit": "^10.5|^11.0|^12.0",
         "mockery/mockery": "^1.6",
         "phpstan/phpstan": "^2.1",
         "friendsofphp/php-cs-fixer": "^3.95"

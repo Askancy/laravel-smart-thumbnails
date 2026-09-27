@@ -18,16 +18,14 @@ class InterventionImage3IntegrationTest extends TestCase
         Cache::flush();
     }
 
-    /** @test */
-    public function it_can_create_image_manager_with_intervention_3()
+    public function test_it_can_create_image_manager_with_intervention_3()
     {
         $manager = ThumbnailGenerator::createImageManager();
 
         $this->assertInstanceOf(\Intervention\Image\ImageManager::class, $manager);
     }
 
-    /** @test */
-    public function it_can_read_and_manipulate_images_with_intervention_3()
+    public function test_it_can_read_and_manipulate_images_with_intervention_3()
     {
         $manager = ThumbnailGenerator::createImageManager();
 
@@ -39,8 +37,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertEquals(200, $image->height());
     }
 
-    /** @test */
-    public function it_can_crop_images_with_new_api()
+    public function test_it_can_crop_images_with_new_api()
     {
         $manager = ThumbnailGenerator::createImageManager();
         $image = $manager->create(400, 300);
@@ -52,8 +49,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertEquals(100, $cropped->height());
     }
 
-    /** @test */
-    public function it_can_resize_images_with_new_api()
+    public function test_it_can_resize_images_with_new_api()
     {
         $manager = ThumbnailGenerator::createImageManager();
         $image = $manager->create(400, 300);
@@ -65,8 +61,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertEquals(150, $resized->height());
     }
 
-    /** @test */
-    public function it_can_encode_images_to_different_formats()
+    public function test_it_can_encode_images_to_different_formats()
     {
         $manager = ThumbnailGenerator::createImageManager();
         $image = $manager->create(100, 100);
@@ -87,8 +82,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertNotEmpty($webp);
     }
 
-    /** @test */
-    public function smart_crop_service_works_with_intervention_3()
+    public function test_smart_crop_service_works_with_intervention_3()
     {
         $manager = ThumbnailGenerator::createImageManager();
         $smartCrop = new SmartCropService();
@@ -100,8 +94,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertEquals(100, $cropped->height());
     }
 
-    /** @test */
-    public function thumbnail_generator_basic_crop_works_with_intervention_3()
+    public function test_thumbnail_generator_basic_crop_works_with_intervention_3()
     {
         $manager = ThumbnailGenerator::createImageManager();
         $image = $manager->create(400, 200);
@@ -112,8 +105,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertEquals(100, $cropped->height());
     }
 
-    /** @test */
-    public function it_can_create_and_save_thumbnails_end_to_end()
+    public function test_it_can_create_and_save_thumbnails_end_to_end()
     {
         config(['thumbnails.presets.test' => [
             'format' => 'jpg',
@@ -147,8 +139,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertEquals(100, $savedImage->height());
     }
 
-    /** @test */
-    public function it_handles_different_image_formats_with_intervention_3()
+    public function test_it_handles_different_image_formats_with_intervention_3()
     {
         $manager = ThumbnailGenerator::createImageManager();
 
@@ -173,8 +164,7 @@ class InterventionImage3IntegrationTest extends TestCase
         }
     }
 
-    /** @test */
-    public function it_maintains_transparency_in_png_with_intervention_3()
+    public function test_it_maintains_transparency_in_png_with_intervention_3()
     {
         $manager = ThumbnailGenerator::createImageManager();
 
@@ -192,8 +182,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertEquals(100, $readBack->height());
     }
 
-    /** @test */
-    public function it_respects_quality_settings_with_intervention_3()
+    public function test_it_respects_quality_settings_with_intervention_3()
     {
         $manager = ThumbnailGenerator::createImageManager();
         $image = $manager->create(100, 100);
@@ -206,8 +195,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertGreaterThan(strlen($lowQuality), strlen($highQuality));
     }
 
-    /** @test */
-    public function it_can_process_large_images_with_intervention_3()
+    public function test_it_can_process_large_images_with_intervention_3()
     {
         $manager = ThumbnailGenerator::createImageManager();
 
@@ -221,8 +209,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertEquals(200, $thumbnail->height());
     }
 
-    /** @test */
-    public function it_handles_memory_efficiently_with_intervention_3()
+    public function test_it_handles_memory_efficiently_with_intervention_3()
     {
         $manager = ThumbnailGenerator::createImageManager();
 
@@ -246,8 +233,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertLessThan(10 * 1024 * 1024, $memoryGrowth);
     }
 
-    /** @test */
-    public function it_can_chain_multiple_operations_with_intervention_3()
+    public function test_it_can_chain_multiple_operations_with_intervention_3()
     {
         $manager = ThumbnailGenerator::createImageManager();
         $image = $manager->create(400, 300);
@@ -261,8 +247,7 @@ class InterventionImage3IntegrationTest extends TestCase
         $this->assertEquals(150, $processed->height());
     }
 
-    /** @test */
-    public function thumbnail_service_integration_with_intervention_3()
+    public function test_thumbnail_service_integration_with_intervention_3()
     {
         config(['thumbnails.presets.integration_test' => [
             'format' => 'webp',

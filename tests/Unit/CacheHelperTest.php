@@ -20,16 +20,14 @@ class CacheHelperTest extends TestCase
         parent::tearDown();
     }
 
-    /** @test */
-    public function it_detects_cache_driver_tagging_support()
+    public function test_it_detects_cache_driver_tagging_support()
     {
         // Test with array driver (supports tagging)
         config(['cache.default' => 'array']);
         $this->assertTrue(CacheHelper::supportsTagging());
     }
 
-    /** @test */
-    public function it_returns_driver_info()
+    public function test_it_returns_driver_info()
     {
         $info = CacheHelper::getDriverInfo();
 
@@ -40,8 +38,7 @@ class CacheHelperTest extends TestCase
         $this->assertArrayHasKey('supported_drivers', $info);
     }
 
-    /** @test */
-    public function it_can_remember_values_with_tags()
+    public function test_it_can_remember_values_with_tags()
     {
         $tags = ['thumbnails', 'test'];
         $key = 'test-key';
@@ -55,8 +52,7 @@ class CacheHelperTest extends TestCase
         $this->assertEquals($value, $result);
     }
 
-    /** @test */
-    public function it_caches_values_on_subsequent_calls()
+    public function test_it_caches_values_on_subsequent_calls()
     {
         $tags = ['thumbnails', 'test'];
         $key = 'test-key-cached';
@@ -80,8 +76,7 @@ class CacheHelperTest extends TestCase
         $this->assertEquals(1, $callCount, 'Callback should only be called once');
     }
 
-    /** @test */
-    public function it_can_put_values_with_tags()
+    public function test_it_can_put_values_with_tags()
     {
         $tags = ['thumbnails', 'test'];
         $key = 'put-test-key';
@@ -94,8 +89,7 @@ class CacheHelperTest extends TestCase
         $this->assertEquals($value, $retrieved);
     }
 
-    /** @test */
-    public function it_can_get_values_with_tags()
+    public function test_it_can_get_values_with_tags()
     {
         $tags = ['thumbnails', 'test'];
         $key = 'get-test-key';
@@ -108,8 +102,7 @@ class CacheHelperTest extends TestCase
         $this->assertEquals($value, $retrieved);
     }
 
-    /** @test */
-    public function it_returns_null_for_non_existent_keys()
+    public function test_it_returns_null_for_non_existent_keys()
     {
         $tags = ['thumbnails', 'test'];
         $key = 'non-existent-key';
@@ -119,8 +112,7 @@ class CacheHelperTest extends TestCase
         $this->assertNull($retrieved);
     }
 
-    /** @test */
-    public function it_can_forget_values_with_tags()
+    public function test_it_can_forget_values_with_tags()
     {
         $tags = ['thumbnails', 'test'];
         $key = 'forget-test-key';
@@ -134,8 +126,7 @@ class CacheHelperTest extends TestCase
         $this->assertNull(CacheHelper::get($tags, $key));
     }
 
-    /** @test */
-    public function it_can_check_if_key_exists()
+    public function test_it_can_check_if_key_exists()
     {
         $tags = ['thumbnails', 'test'];
         $key = 'exists-test-key';
@@ -151,8 +142,7 @@ class CacheHelperTest extends TestCase
         $this->assertFalse(CacheHelper::has($tags, $key));
     }
 
-    /** @test */
-    public function it_can_flush_tagged_cache()
+    public function test_it_can_flush_tagged_cache()
     {
         $tags = ['thumbnails', 'test'];
         $key1 = 'flush-test-key-1';
@@ -176,8 +166,7 @@ class CacheHelperTest extends TestCase
         }
     }
 
-    /** @test */
-    public function it_handles_multiple_tags()
+    public function test_it_handles_multiple_tags()
     {
         $tags1 = ['thumbnails', 'preset1'];
         $tags2 = ['thumbnails', 'preset2'];
@@ -195,8 +184,7 @@ class CacheHelperTest extends TestCase
         $this->assertEquals('value2', $value2);
     }
 
-    /** @test */
-    public function it_works_with_file_cache_driver()
+    public function test_it_works_with_file_cache_driver()
     {
         // Simulate file driver (no tagging support)
         config(['cache.default' => 'file']);
@@ -213,8 +201,7 @@ class CacheHelperTest extends TestCase
         $this->assertEquals($value, $retrieved);
     }
 
-    /** @test */
-    public function it_prefixes_keys_for_non_tagging_drivers()
+    public function test_it_prefixes_keys_for_non_tagging_drivers()
     {
         // With non-tagging drivers, keys should be prefixed to avoid collisions
         config(['cache.default' => 'file']);
@@ -234,8 +221,7 @@ class CacheHelperTest extends TestCase
         $this->assertEquals($value, $directValue);
     }
 
-    /** @test */
-    public function remember_method_does_not_call_callback_if_cached()
+    public function test_remember_method_does_not_call_callback_if_cached()
     {
         $tags = ['thumbnails', 'test'];
         $key = 'remember-no-call';
@@ -256,8 +242,7 @@ class CacheHelperTest extends TestCase
         $this->assertEquals(1, $callCount);
     }
 
-    /** @test */
-    public function it_handles_complex_values()
+    public function test_it_handles_complex_values()
     {
         $tags = ['thumbnails', 'test'];
         $key = 'complex-value';
@@ -280,8 +265,7 @@ class CacheHelperTest extends TestCase
         $this->assertEquals($complexValue, $retrieved);
     }
 
-    /** @test */
-    public function it_respects_ttl()
+    public function test_it_respects_ttl()
     {
         $tags = ['thumbnails', 'test'];
         $key = 'ttl-test';
@@ -297,8 +281,7 @@ class CacheHelperTest extends TestCase
         $this->assertFalse(CacheHelper::has($tags, $key));
     }
 
-    /** @test */
-    public function flush_logs_warning_for_non_tagging_drivers()
+    public function test_flush_logs_warning_for_non_tagging_drivers()
     {
         config(['cache.default' => 'file']);
 

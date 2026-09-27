@@ -18,8 +18,7 @@ class SmartCropServiceTest extends TestCase
         $this->imageManager = ThumbnailGenerator::createImageManager();
     }
 
-    /** @test */
-    public function it_can_crop_landscape_image()
+    public function test_it_can_crop_landscape_image()
     {
         // Create test image 200x100 (landscape)
         $image = $this->imageManager->create(200, 100);
@@ -31,8 +30,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(100, $croppedImage->height());
     }
 
-    /** @test */
-    public function it_can_crop_portrait_image()
+    public function test_it_can_crop_portrait_image()
     {
         // Create test image 100x200 (portrait)
         $image = $this->imageManager->create(100, 200);
@@ -44,8 +42,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(100, $croppedImage->height());
     }
 
-    /** @test */
-    public function it_skips_crop_for_matching_dimensions()
+    public function test_it_skips_crop_for_matching_dimensions()
     {
         // Create image already at target dimensions
         $image = $this->imageManager->create(100, 100);
@@ -56,8 +53,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(100, $croppedImage->height());
     }
 
-    /** @test */
-    public function it_calculates_optimal_crop_for_landscape()
+    public function test_it_calculates_optimal_crop_for_landscape()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('calculateOptimalCrop');
@@ -75,8 +71,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(0, $result['cropY']);
     }
 
-    /** @test */
-    public function it_calculates_optimal_crop_for_portrait()
+    public function test_it_calculates_optimal_crop_for_portrait()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('calculateOptimalCrop');
@@ -95,8 +90,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertLessThan(50, $result['cropY']); // Should be in upper portion
     }
 
-    /** @test */
-    public function it_skips_crop_when_aspect_ratios_match()
+    public function test_it_skips_crop_when_aspect_ratios_match()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('calculateOptimalCrop');
@@ -112,8 +106,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(0, $result['cropY']);
     }
 
-    /** @test */
-    public function it_calculates_smart_x_position_using_rule_of_thirds()
+    public function test_it_calculates_smart_x_position_using_rule_of_thirds()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('calculateSmartX');
@@ -129,8 +122,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals($expectedX, $x);
     }
 
-    /** @test */
-    public function it_returns_zero_x_when_no_space_available()
+    public function test_it_returns_zero_x_when_no_space_available()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('calculateSmartX');
@@ -144,8 +136,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(0, $x);
     }
 
-    /** @test */
-    public function it_calculates_smart_y_position_preferring_upper_third()
+    public function test_it_calculates_smart_y_position_preferring_upper_third()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('calculateSmartY');
@@ -164,8 +155,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertLessThan($totalHeight / 2, $y);
     }
 
-    /** @test */
-    public function it_returns_zero_y_when_no_space_available()
+    public function test_it_returns_zero_y_when_no_space_available()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('calculateSmartY');
@@ -179,8 +169,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(0, $y);
     }
 
-    /** @test */
-    public function it_calculates_energy_map_with_rule_of_thirds_points()
+    public function test_it_calculates_energy_map_with_rule_of_thirds_points()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('calculateEnergyMap');
@@ -204,8 +193,7 @@ class SmartCropServiceTest extends TestCase
         }
     }
 
-    /** @test */
-    public function it_finds_interest_points_in_image()
+    public function test_it_finds_interest_points_in_image()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('findInterestPoints');
@@ -224,8 +212,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertGreaterThan(0, $interestPoint['weight']);
     }
 
-    /** @test */
-    public function it_crops_wide_image_to_narrow_aspect_ratio()
+    public function test_it_crops_wide_image_to_narrow_aspect_ratio()
     {
         // Very wide image
         $image = $this->imageManager->create(400, 100);
@@ -237,8 +224,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(200, $croppedImage->height());
     }
 
-    /** @test */
-    public function it_crops_tall_image_to_wide_aspect_ratio()
+    public function test_it_crops_tall_image_to_wide_aspect_ratio()
     {
         // Very tall image
         $image = $this->imageManager->create(100, 400);
@@ -250,8 +236,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(100, $croppedImage->height());
     }
 
-    /** @test */
-    public function it_handles_very_small_images()
+    public function test_it_handles_very_small_images()
     {
         // Tiny image
         $image = $this->imageManager->create(10, 10);
@@ -263,8 +248,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(5, $croppedImage->height());
     }
 
-    /** @test */
-    public function it_handles_very_large_aspect_ratio_differences()
+    public function test_it_handles_very_large_aspect_ratio_differences()
     {
         // Extreme landscape
         $image = $this->imageManager->create(1000, 100);
@@ -276,8 +260,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals(1000, $croppedImage->height());
     }
 
-    /** @test */
-    public function it_maintains_image_quality_after_crop()
+    public function test_it_maintains_image_quality_after_crop()
     {
         $image = $this->imageManager->create(200, 200);
 
@@ -288,8 +271,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertNotNull($croppedImage->height());
     }
 
-    /** @test */
-    public function crop_position_is_consistent_for_same_dimensions()
+    public function test_crop_position_is_consistent_for_same_dimensions()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('calculateOptimalCrop');
@@ -303,8 +285,7 @@ class SmartCropServiceTest extends TestCase
         $this->assertEquals($result1, $result2);
     }
 
-    /** @test */
-    public function rule_of_thirds_produces_better_crop_than_center()
+    public function test_rule_of_thirds_produces_better_crop_than_center()
     {
         $reflection = new \ReflectionClass($this->smartCropService);
         $method = $reflection->getMethod('calculateSmartX');

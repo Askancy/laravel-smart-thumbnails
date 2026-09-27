@@ -15,8 +15,7 @@ class ThumbnailGeneratorTest extends TestCase
         Storage::fake('local');
     }
 
-    /** @test */
-    public function it_creates_image_manager_with_gd_driver()
+    public function test_it_creates_image_manager_with_gd_driver()
     {
         config(['thumbnails.intervention_driver' => 'gd']);
 
@@ -25,8 +24,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertInstanceOf(ImageManager::class, $manager);
     }
 
-    /** @test */
-    public function it_creates_image_manager_with_imagick_driver_if_available()
+    public function test_it_creates_image_manager_with_imagick_driver_if_available()
     {
         if (!extension_loaded('imagick')) {
             $this->markTestSkipped('ImageMagick extension not available');
@@ -39,8 +37,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertInstanceOf(ImageManager::class, $manager);
     }
 
-    /** @test */
-    public function it_applies_basic_crop_to_landscape_image()
+    public function test_it_applies_basic_crop_to_landscape_image()
     {
         $manager = ThumbnailGenerator::createImageManager();
 
@@ -54,8 +51,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals(100, $cropped->height());
     }
 
-    /** @test */
-    public function it_applies_basic_crop_to_portrait_image()
+    public function test_it_applies_basic_crop_to_portrait_image()
     {
         $manager = ThumbnailGenerator::createImageManager();
 
@@ -69,8 +65,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals(100, $cropped->height());
     }
 
-    /** @test */
-    public function it_does_not_crop_if_dimensions_match()
+    public function test_it_does_not_crop_if_dimensions_match()
     {
         $manager = ThumbnailGenerator::createImageManager();
 
@@ -84,8 +79,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals(100, $cropped->height());
     }
 
-    /** @test */
-    public function it_converts_image_to_webp_format()
+    public function test_it_converts_image_to_webp_format()
     {
         $manager = ThumbnailGenerator::createImageManager();
         $image = $manager->create(100, 100);
@@ -96,8 +90,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertNotEmpty($webp);
     }
 
-    /** @test */
-    public function it_converts_image_to_jpg_format()
+    public function test_it_converts_image_to_jpg_format()
     {
         $manager = ThumbnailGenerator::createImageManager();
         $image = $manager->create(100, 100);
@@ -108,8 +101,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertNotEmpty($jpg);
     }
 
-    /** @test */
-    public function it_converts_image_to_png_format()
+    public function test_it_converts_image_to_png_format()
     {
         $manager = ThumbnailGenerator::createImageManager();
         $image = $manager->create(100, 100);
@@ -120,8 +112,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertNotEmpty($png);
     }
 
-    /** @test */
-    public function it_formats_bytes_correctly()
+    public function test_it_formats_bytes_correctly()
     {
         $this->assertEquals('0 B', ThumbnailGenerator::formatBytes(0));
         $this->assertEquals('1 KB', ThumbnailGenerator::formatBytes(1024));
@@ -131,8 +122,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals('1.5 KB', ThumbnailGenerator::formatBytes(1536));
     }
 
-    /** @test */
-    public function it_sanitizes_filenames()
+    public function test_it_sanitizes_filenames()
     {
         $this->assertEquals('test', ThumbnailGenerator::sanitizeFilename('test'));
         $this->assertEquals('test123', ThumbnailGenerator::sanitizeFilename('test123'));
@@ -145,8 +135,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals('testfile', ThumbnailGenerator::sanitizeFilename('test.file'));
     }
 
-    /** @test */
-    public function it_truncates_long_filenames()
+    public function test_it_truncates_long_filenames()
     {
         $longFilename = str_repeat('a', 150);
         $sanitized = ThumbnailGenerator::sanitizeFilename($longFilename);
@@ -154,8 +143,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals(100, strlen($sanitized));
     }
 
-    /** @test */
-    public function it_validates_image_content_with_allowed_extensions()
+    public function test_it_validates_image_content_with_allowed_extensions()
     {
         config(['thumbnails.validate_image_content' => true]);
         config(['thumbnails.allowed_extensions' => ['jpg', 'png', 'webp']]);
@@ -168,8 +156,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertTrue(true); // If we get here, validation passed
     }
 
-    /** @test */
-    public function it_throws_exception_for_invalid_extensions()
+    public function test_it_throws_exception_for_invalid_extensions()
     {
         $this->expectException(\Exception::class);
         $this->expectExceptionMessage('not allowed');
@@ -180,8 +167,7 @@ class ThumbnailGeneratorTest extends TestCase
         ThumbnailGenerator::validateImageContent('test.exe');
     }
 
-    /** @test */
-    public function it_skips_validation_when_disabled()
+    public function test_it_skips_validation_when_disabled()
     {
         config(['thumbnails.validate_image_content' => false]);
 
@@ -191,8 +177,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertTrue(true);
     }
 
-    /** @test */
-    public function it_generates_hash_prefix_subdirectory()
+    public function test_it_generates_hash_prefix_subdirectory()
     {
         $config = ['subdirectory_strategy' => 'hash_prefix'];
 
@@ -203,8 +188,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals(4, strlen($subdir)); // X/Y/ = 4 characters
     }
 
-    /** @test */
-    public function it_generates_consistent_hash_subdirectories()
+    public function test_it_generates_consistent_hash_subdirectories()
     {
         $config = ['subdirectory_strategy' => 'hash_prefix'];
 
@@ -215,8 +199,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals($subdir1, $subdir2);
     }
 
-    /** @test */
-    public function it_generates_filename_prefix_subdirectory()
+    public function test_it_generates_filename_prefix_subdirectory()
     {
         $config = ['subdirectory_strategy' => 'filename_prefix'];
 
@@ -226,8 +209,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertMatchesRegularExpression('/^[a-z0-9]\/[a-z0-9]\/$/', $subdir);
     }
 
-    /** @test */
-    public function it_generates_misc_subdirectory_for_short_filenames()
+    public function test_it_generates_misc_subdirectory_for_short_filenames()
     {
         $config = ['subdirectory_strategy' => 'filename_prefix'];
 
@@ -236,8 +218,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals('misc/', $subdir);
     }
 
-    /** @test */
-    public function it_generates_hash_levels_subdirectory()
+    public function test_it_generates_hash_levels_subdirectory()
     {
         $config = ['subdirectory_strategy' => 'hash_levels'];
 
@@ -248,8 +229,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals(6, strlen($subdir)); // X/Y/Z/ = 6 characters
     }
 
-    /** @test */
-    public function it_generates_date_based_subdirectory()
+    public function test_it_generates_date_based_subdirectory()
     {
         $config = ['subdirectory_strategy' => 'date_based'];
 
@@ -259,8 +239,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertMatchesRegularExpression('/^\d{4}\/\d{2}\/\d{2}\/$/', $subdir);
     }
 
-    /** @test */
-    public function it_generates_no_subdirectory_when_strategy_is_none()
+    public function test_it_generates_no_subdirectory_when_strategy_is_none()
     {
         $config = ['subdirectory_strategy' => 'none'];
 
@@ -269,8 +248,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals('', $subdir);
     }
 
-    /** @test */
-    public function it_uses_default_strategy_when_not_specified()
+    public function test_it_uses_default_strategy_when_not_specified()
     {
         config(['thumbnails.default_subdirectory_strategy' => 'hash_prefix']);
 
@@ -281,8 +259,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertMatchesRegularExpression('/^[a-f0-9]\/[a-f0-9]\/$/', $subdir);
     }
 
-    /** @test */
-    public function it_normalizes_paths_correctly()
+    public function test_it_normalizes_paths_correctly()
     {
         $this->assertEquals('test/path', ThumbnailGenerator::normalizePath('test/path'));
         $this->assertEquals('test/path', ThumbnailGenerator::normalizePath('/test/path/'));
@@ -291,8 +268,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertEquals('', ThumbnailGenerator::normalizePath(''));
     }
 
-    /** @test */
-    public function it_checks_if_disk_supports_visibility()
+    public function test_it_checks_if_disk_supports_visibility()
     {
         // S3 should support visibility
         config(['filesystems.disks.s3' => ['driver' => 's3']]);
@@ -307,14 +283,12 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertTrue(ThumbnailGenerator::diskSupportsVisibility('local'));
     }
 
-    /** @test */
-    public function it_returns_false_for_non_existent_disk()
+    public function test_it_returns_false_for_non_existent_disk()
     {
         $this->assertFalse(ThumbnailGenerator::diskSupportsVisibility('non_existent_disk'));
     }
 
-    /** @test */
-    public function it_creates_destination_directory()
+    public function test_it_creates_destination_directory()
     {
         $disk = 'local';
         $directory = 'test/thumbnails';
@@ -324,8 +298,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertTrue(Storage::disk($disk)->exists($directory));
     }
 
-    /** @test */
-    public function it_handles_nested_directory_creation()
+    public function test_it_handles_nested_directory_creation()
     {
         $disk = 'local';
         $directory = 'test/very/nested/thumbnails';
@@ -335,8 +308,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertTrue(Storage::disk($disk)->exists($directory));
     }
 
-    /** @test */
-    public function it_does_not_fail_if_directory_already_exists()
+    public function test_it_does_not_fail_if_directory_already_exists()
     {
         $disk = 'local';
         $directory = 'test/existing';
@@ -349,8 +321,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertTrue(Storage::disk($disk)->exists($directory));
     }
 
-    /** @test */
-    public function it_sets_public_visibility_if_supported()
+    public function test_it_sets_public_visibility_if_supported()
     {
         $disk = 'local';
         $path = 'test/file.jpg';
@@ -363,8 +334,7 @@ class ThumbnailGeneratorTest extends TestCase
         $this->assertTrue(true); // If we get here, it worked
     }
 
-    /** @test */
-    public function it_handles_visibility_errors_gracefully()
+    public function test_it_handles_visibility_errors_gracefully()
     {
         config(['thumbnails.log_errors' => false]);
 

@@ -13,17 +13,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: [8.1, 8.2, 8.3]
-        laravel: ['10.*', '11.*']
+        # Si prova solo Laravel 12, e non per pigrizia: al 27/09/2026 composer
+        # rifiuta di installare TUTTA la linea 10 e TUTTA la linea 11 (dalla
+        # v11.0.0 alla v11.56.1) perche' colpite dagli avvisi
+        # PKSA-3r5d-mb8f-1qw9, PKSA-m5cs-t1y6-qpcs, PKSA-mdq4-51ck-6kdq. La
+        # matrice moriva nell'installazione, prima di eseguire un solo test.
+        #
+        # Il pacchetto continua a dichiarare ^11.0|^12.0: chi ha gia' un
+        # Laravel 11 installato puo' usarlo, semplicemente qui non lo si
+        # verifica. Quando la linea 11 tornera' installabile, rientra nella
+        # matrice con testbench 9.*.
+        php: [8.2, 8.3, 8.4]
+        laravel: ['12.*']
         dependency-version: [prefer-stable]
         include:
-          - laravel: 11.*
-            testbench: 9.*
-          - laravel: 10.*
-            testbench: 8.*
-        exclude:
-          - php: 8.1
-            laravel: 11.*
+          - laravel: 12.*
+            testbench: 10.*
 
     name: PHP ${{ matrix.php }} - Laravel ${{ matrix.laravel }}
 
