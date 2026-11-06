@@ -4,6 +4,7 @@ namespace Askancy\LaravelSmartThumbnails\Commands;
 
 use Askancy\LaravelSmartThumbnails\Jobs\GenerateThumbnailJob;
 use Askancy\LaravelSmartThumbnails\Services\ThumbnailService;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 
@@ -29,6 +30,10 @@ class PregenerateThumbnailsCommand extends Command
         $async = $this->option('async');
         $force = $this->option('force');
         $chunkSize = (int) $this->option('chunk');
+        if ($chunkSize < 1) {
+            $this->error('The chunk size must be at least 1.');
+            return 1;
+        }
         $dryRun = $this->option('dry-run');
 
         // Configura memory limit
@@ -94,11 +99,8 @@ class PregenerateThumbnailsCommand extends Command
                     try {
                         $result = $this->processImage($imagePath, $sourceDisk, $presetName, $presetConfig, $async, $force, $dryRun);
 
-                        if ($result['generated']) {
-                            $totalGenerated += $result['count'];
-                        } else {
-                            $totalSkipped += $result['count'];
-                        }
+                        $totalGenerated += $result['generated_count'];
+                        $totalSkipped += $result['skipped_count'];
                     } catch (\Exception $e) {
                         $totalErrors++;
                         $this->error("❌ Error processing {$imagePath}: " . $e->getMessage());
@@ -136,7 +138,7 @@ class PregenerateThumbnailsCommand extends Command
 
         if ($async && $totalGenerated > 0) {
             $this->info("🔄 {$totalGenerated} thumbnails queued for async generation");
-            $this->info("💡 Check queue status with: php artisan queue:work");
+            $this->info('💡 Process queued thumbnails with: php artisan queue:work --queue=' . config('thumbnails.queue_name', 'thumbnails'));
         }
 
         return $totalErrors > 0 ? 1 : 0;
@@ -145,7 +147,7 @@ class PregenerateThumbnailsCommand extends Command
     protected function scanForImages(string $disk, string $path): array
     {
         try {
-            $allowedExtensions = config('thumbnails.allowed_extensions', ['jpg', 'jpeg', 'png', 'webp', 'gif']);
+            $allowedExtensions = config('thumbnails.allowed_extensions', ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif']);
             $files = Storage::disk($disk)->allFiles($path);
 
             $images = array_filter($files, function ($file) use ($allowedExtensions) {
@@ -178,14 +180,14 @@ class PregenerateThumbnailsCommand extends Command
                 ->src($imagePath, $sourceDisk);
 
             // Genera thumbnail principale
-            $mainThumbnailPath = $this->generateThumbnailPath($imagePath, $presetConfig);
+            $mainThumbnailPath = $this->thumbnailService->path();
 
-            if ($force || !$this->thumbnailExists($presetConfig['destination']['disk'], $mainThumbnailPath)) {
+            if ($force || !config('thumbnails.cache_thumbnails', true) || !$this->thumbnailExists($presetConfig['destination']['disk'], $mainThumbnailPath)) {
                 if (!$dryRun) {
                     if ($async) {
-                        $this->dispatchThumbnailJob($imagePath, $sourceDisk, $presetName, $presetConfig, $mainThumbnailPath);
+                        $this->dispatchThumbnailJob($imagePath, $sourceDisk, $presetName, $presetConfig, $mainThumbnailPath, null, $force);
                     } else {
-                        $this->thumbnailService->url();
+                        $this->thumbnailService->url(null, $force);
                     }
                 }
                 $generated++;
@@ -204,15 +206,15 @@ class PregenerateThumbnailsCommand extends Command
             // Genera varianti
             if (isset($presetConfig['variants'])) {
                 foreach ($presetConfig['variants'] as $variantName => $variantConfig) {
-                    $effectiveConfig = array_merge($presetConfig, $variantConfig);
-                    $variantThumbnailPath = $this->generateThumbnailPath($imagePath, $effectiveConfig, $variantName);
+                    $effectiveConfig = array_replace_recursive($presetConfig, $variantConfig);
+                    $variantThumbnailPath = $this->thumbnailService->path($variantName);
 
-                    if ($force || !$this->thumbnailExists($effectiveConfig['destination']['disk'] ?? $presetConfig['destination']['disk'], $variantThumbnailPath)) {
+                    if ($force || !config('thumbnails.cache_thumbnails', true) || !$this->thumbnailExists($effectiveConfig['destination']['disk'] ?? $presetConfig['destination']['disk'], $variantThumbnailPath)) {
                         if (!$dryRun) {
                             if ($async) {
-                                $this->dispatchThumbnailJob($imagePath, $sourceDisk, $presetName, $effectiveConfig, $variantThumbnailPath, $variantName);
+                                $this->dispatchThumbnailJob($imagePath, $sourceDisk, $presetName, $effectiveConfig, $variantThumbnailPath, $variantName, $force);
                             } else {
-                                $this->thumbnailService->url($variantName);
+                                $this->thumbnailService->url($variantName, $force);
                             }
                         }
                         $generated++;
@@ -247,7 +249,8 @@ class PregenerateThumbnailsCommand extends Command
         string $presetName,
         array $config,
         string $thumbnailPath,
-        string $variant = null
+        ?string $variant = null,
+        bool $force = false
     ): void {
         GenerateThumbnailJob::dispatch(
             $imagePath,
@@ -255,58 +258,8 @@ class PregenerateThumbnailsCommand extends Command
             $presetName,
             $config,
             $thumbnailPath,
-            $variant
+            $variant, $force, true
         )->onQueue(config('thumbnails.queue_name', 'thumbnails'));
-    }
-
-    protected function generateThumbnailPath(string $imagePath, array $config, string $variant = null): string
-    {
-        $pathInfo = pathinfo($imagePath);
-        $filename = $pathInfo['filename'];
-
-        if (config('thumbnails.sanitize_filenames', true)) {
-            $filename = preg_replace('/[^a-zA-Z0-9\-_]/', '', $filename);
-            $filename = substr($filename, 0, 100);
-        }
-
-        $format = $config['format'] ?? config('thumbnails.default_format', 'jpg');
-        $suffix = str_replace('x', '_', $config['smartcrop']);
-
-        if ($variant) {
-            $suffix .= '_' . $variant;
-        }
-
-        $subdirectory = $this->generateSubdirectory($filename, $config);
-
-        return $config['destination']['path'] .
-            $subdirectory .
-            $filename . '_' .
-            $suffix .
-            '.' . $format;
-    }
-
-    protected function generateSubdirectory(string $filename, array $config): string
-    {
-        $strategy = $config['subdirectory_strategy'] ?? config('thumbnails.default_subdirectory_strategy', 'hash_prefix');
-
-        switch ($strategy) {
-            case 'hash_prefix':
-                $hash = md5($filename);
-                return substr($hash, 0, 1) . '/' . substr($hash, 1, 1) . '/';
-            case 'date_based':
-                return now()->format('Y/m/d') . '/';
-            case 'filename_prefix':
-                $clean = preg_replace('/[^a-z0-9]/i', '', strtolower($filename));
-                if (strlen($clean) < 2) {
-                    return 'misc/';
-                }
-                return substr($clean, 0, 1) . '/' . substr($clean, 1, 1) . '/';
-            case 'hash_levels':
-                $hash = md5($filename);
-                return substr($hash, 0, 1) . '/' . substr($hash, 1, 1) . '/' . substr($hash, 2, 1) . '/';
-            default:
-                return '';
-        }
     }
 
     protected function thumbnailExists(string $disk, string $path): bool

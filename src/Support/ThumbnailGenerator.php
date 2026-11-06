@@ -2,6 +2,8 @@
 
 namespace Askancy\LaravelSmartThumbnails\Support;
 
+use Askancy\LaravelSmartThumbnails\Services\DontCropService;
+use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
@@ -9,6 +11,74 @@ use Intervention\Image\Interfaces\ImageInterface;
 
 class ThumbnailGenerator
 {
+    public static function diskUrl(string $disk, string $path): string
+    {
+        $storage = Storage::disk($disk);
+        if (!method_exists($storage, 'url')) {
+            throw new \RuntimeException("Disk '{$disk}' cannot produce image URLs.");
+        }
+        return $storage->url($path);
+    }
+
+    /** Shared rendering path for synchronous requests and queue workers. */
+    public static function transform(
+        ImageInterface $image,
+        int $width,
+        int $height,
+        array $config,
+        SmartCropService $smartCrop
+    ): ImageInterface {
+        if ($width <= 0 || $height <= 0) {
+            throw new \InvalidArgumentException('Thumbnail dimensions must be positive.');
+        }
+        $mode = $config['crop_mode'] ?? config('thumbnails.crop_mode');
+        $mode ??= ($config['smart_crop_enabled'] ?? config('thumbnails.enable_smart_crop', true)) ? 'smart' : 'center';
+
+        $allowUpscale = $config['allow_upscale'] ?? config('thumbnails.allow_upscale', true);
+        if (!$allowUpscale && $mode !== 'dont_crop') {
+            $factor = min(1, $image->width() / $width, $image->height() / $height);
+            $width = max(1, (int) floor($width * $factor));
+            $height = max(1, (int) floor($height * $factor));
+        }
+
+        if ($mode === 'dont_crop') {
+            return (new DontCropService())->contain(
+                $image, $width, $height,
+                $config['dont_crop_background'] ?? config('thumbnails.dont_crop_background', 'gradient'),
+                $allowUpscale
+            );
+        }
+        if ($mode === 'center') {
+            return self::applyBasicCrop($image, $width, $height);
+        }
+        if ($mode !== 'smart') {
+            throw new \InvalidArgumentException("Unknown crop mode '{$mode}'. Use smart, center, or dont_crop.");
+        }
+        try {
+            return $smartCrop->smartCrop($image, $width, $height);
+        } catch (\Exception $e) {
+            if (config('thumbnails.log_errors', true)) {
+                Log::warning('Smart crop analysis failed, using center crop', ['error' => $e->getMessage()]);
+            }
+            return self::applyBasicCrop($image, $width, $height);
+        }
+    }
+
+    /** Separate explicitly selected modes/backgrounds while retaining legacy filenames. */
+    public static function renderingSuffix(array $config): string
+    {
+        $mode = $config['crop_mode'] ?? config('thumbnails.crop_mode');
+        if ($mode === null) {
+            return '';
+        }
+        if (!in_array($mode, ['smart', 'center', 'dont_crop'], true)) {
+            throw new \InvalidArgumentException("Unknown crop mode '{$mode}'.");
+        }
+        $background = $config['dont_crop_background'] ?? config('thumbnails.dont_crop_background', 'gradient');
+
+        return '_' . $mode . '_' . substr(sha1(serialize([$mode, $background])), 0, 8);
+    }
+
     /**
      * Create an ImageManager instance with the configured driver
      */
@@ -61,32 +131,68 @@ class ThumbnailGenerator
     /**
      * Convert image to specified format with optimizations
      */
-    public static function convertFormat(ImageInterface $image, string $format, int $quality = 85): string
+    public static function convertFormat(ImageInterface $image, string $format, int $quality = 85, array $options = []): string
     {
         $format = strtolower($format);
 
         switch ($format) {
             case 'avif':
-                // AVIF format - requires ImageMagick driver
+                if (!$image->driver()->supports('avif')) {
+                    throw new \RuntimeException('AVIF encoding is not supported by the configured image driver. Enable AVIF support in GD or Imagick.');
+                }
+
                 // Quality: 0-100 (higher is better, 85 is a good balance)
                 return $image->toAvif($quality)->toString();
 
             case 'webp':
-                $lossless = config('thumbnails.webp_lossless', false);
-                return $image->toWebp($lossless ? 100 : $quality)->toString();
+                $lossless = $options['webp_lossless'] ?? config('thumbnails.webp_lossless', false);
+                if ($lossless && !$image->driver()->supports('webp')) {
+                    throw new \RuntimeException('The configured image driver does not support WebP encoding.');
+                }
+                if ($lossless && $image->core()->native() instanceof \GdImage) {
+                    ob_start();
+                    try {
+                        if (!imagewebp($image->core()->native(), null, IMG_WEBP_LOSSLESS)) {
+                            throw new \RuntimeException('Lossless WebP encoding failed.');
+                        }
+                        return (string) ob_get_contents();
+                    } finally {
+                        ob_end_clean();
+                    }
+                }
+                if ($lossless && $image->core()->native() instanceof \Imagick) {
+                    $image = clone $image;
+                    $image->core()->native()->setOption('webp:lossless', 'true');
+                }
+                return $image->toWebp($quality)->toString();
 
             case 'png':
-                // PNG quality is 0-9 in Intervention Image 3.x (compression level)
-                $compression = config('thumbnails.png_compression', 6);
+                $compression = $options['png_compression'] ?? config('thumbnails.png_compression', 6);
+                if ($compression < 0 || $compression > 9) {
+                    throw new \InvalidArgumentException('PNG compression must be between 0 and 9.');
+                }
+                if ($image->core()->native() instanceof \GdImage) {
+                    ob_start();
+                    try {
+                        if (!imagepng($image->core()->native(), null, $compression)) {
+                            throw new \RuntimeException('PNG encoding failed.');
+                        }
+                        return (string) ob_get_contents();
+                    } finally {
+                        ob_end_clean();
+                    }
+                }
+                if ($image->core()->native() instanceof \Imagick) {
+                    $image = clone $image;
+                    $image->core()->native()->setOption('png:compression-level', (string) $compression);
+                }
                 return $image->toPng()->toString();
 
             case 'jpg':
             case 'jpeg':
+                return $image->toJpeg($quality, progressive: $options['enable_progressive_jpeg'] ?? config('thumbnails.enable_progressive_jpeg', true))->toString();
             default:
-                if (config('thumbnails.enable_progressive_jpeg', true)) {
-                    return $image->toJpeg($quality)->toString();
-                }
-                return $image->toJpeg($quality)->toString();
+                throw new \InvalidArgumentException("Unsupported thumbnail format '{$format}'.");
         }
     }
 
@@ -107,7 +213,7 @@ class ThumbnailGenerator
                         $currentPath .= ($currentPath ? '/' : '') . $part;
 
                         if (!Storage::disk($disk)->exists($currentPath)) {
-                            Storage::disk($disk)->makeDirectory($currentPath, 0755, true);
+                            Storage::disk($disk)->makeDirectory($currentPath);
 
                             if (config('thumbnails.log_directory_creation', false)) {
                                 Log::info("Created directory: {$currentPath} on disk: {$disk}");
@@ -210,16 +316,28 @@ class ThumbnailGenerator
     /**
      * Validate image content and extension
      */
-    public static function validateImageContent(string $path): void
+    public static function validateImageContent(string $path, ?string $binary = null): void
     {
         if (config('thumbnails.validate_image_content', true)) {
             $pathInfo = pathinfo($path);
             $extension = strtolower($pathInfo['extension'] ?? '');
 
             if (!empty($extension)) {
-                $allowedExtensions = config('thumbnails.allowed_extensions', ['jpg', 'jpeg', 'png', 'webp', 'gif']);
+                $allowedExtensions = config('thumbnails.allowed_extensions', ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif']);
                 if (!in_array($extension, $allowedExtensions)) {
                     throw new \Exception("File extension '{$extension}' not allowed");
+                }
+            }
+            if ($binary !== null) {
+                $info = @getimagesizefromstring($binary);
+                $mime = $info['mime'] ?? null;
+                $types = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png',
+                    'webp' => 'image/webp', 'gif' => 'image/gif', 'avif' => 'image/avif'];
+                if ($info === false || !in_array($mime, $types, true)) {
+                    throw new \RuntimeException("Source is not a supported image: {$path}");
+                }
+                if ($extension !== '' && ($types[$extension] ?? null) !== $mime) {
+                    throw new \RuntimeException("Image content does not match file extension: {$path}");
                 }
             }
         }
@@ -294,7 +412,7 @@ class ThumbnailGenerator
         }
 
         $level1 = substr($clean, 0, 1);
-        $level2 = strlen($clean) > 1 ? substr($clean, 1, 1) : '0';
+        $level2 = substr($clean, 1, 1);
 
         return $level1 . '/' . $level2 . '/';
     }

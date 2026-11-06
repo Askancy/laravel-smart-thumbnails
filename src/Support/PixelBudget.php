@@ -32,7 +32,7 @@ class PixelBudget
 
         $size = @getimagesizefromstring($binary);
 
-        if ($size === false || !isset($size[0], $size[1])) {
+        if ($size === false) {
             return null;
         }
 

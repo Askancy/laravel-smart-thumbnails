@@ -3,9 +3,13 @@
 namespace Askancy\LaravelSmartThumbnails\Providers;
 
 use Askancy\LaravelSmartThumbnails\Commands\ThumbnailPurgeCommand;
+use Askancy\LaravelSmartThumbnails\Commands\PregenerateThumbnailsCommand;
+use Askancy\LaravelSmartThumbnails\Commands\PruneThumbnailsCommand;
 use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
 use Askancy\LaravelSmartThumbnails\Services\ThumbnailService;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\Blade;
+use Askancy\LaravelSmartThumbnails\View\Components\ResponsiveImage;
 
 class ThumbnailServiceProvider extends ServiceProvider
 {
@@ -34,6 +38,8 @@ class ThumbnailServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->loadViewsFrom(__DIR__ . '/../../resources/views', 'smart-thumbnails');
+        Blade::component('smart-thumbnail', ResponsiveImage::class);
         if ($this->app->runningInConsole()) {
             $this->publishes([
                 __DIR__ . '/../config/thumbnails.php' => config_path('thumbnails.php'),
@@ -42,6 +48,8 @@ class ThumbnailServiceProvider extends ServiceProvider
             if (class_exists(ThumbnailPurgeCommand::class)) {
                 $this->commands([
                     ThumbnailPurgeCommand::class,
+                    PregenerateThumbnailsCommand::class,
+                    PruneThumbnailsCommand::class,
                 ]);
             }
         }

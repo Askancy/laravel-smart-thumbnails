@@ -4,6 +4,12 @@ namespace Askancy\LaravelSmartThumbnails\Services;
 
 use Askancy\LaravelSmartThumbnails\Support\CacheHelper;
 use Askancy\LaravelSmartThumbnails\Support\PixelBudget;
+use Askancy\LaravelSmartThumbnails\Support\SourceImage;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailIdentity;
+use Askancy\LaravelSmartThumbnails\Support\GenerationLock;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailManifest;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailPublisher;
+use Illuminate\Contracts\Cache\Lock;
 use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -23,6 +29,7 @@ class ThumbnailService
     protected $smartCropService;
     protected $silentMode;
     protected $imageManager;
+    protected ?array $sourceSnapshot = null;
 
     // ==================== CACHE OTTIMIZZATA - SOLO DISK CACHE STATICA ====================
     protected static array $diskCache = [];
@@ -46,6 +53,7 @@ class ThumbnailService
 
     public function set(string $configKey): self
     {
+        $this->config = config('thumbnails.presets', []);
         $this->configKey = $configKey;
         if (!isset($this->config[$configKey])) {
             throw new \Exception("Thumbnail configuration '{$configKey}' not found");
@@ -57,6 +65,7 @@ class ThumbnailService
     {
         $this->sourcePath = $imagePath;
         $this->sourceDisk = $sourceDisk;
+        $this->sourceSnapshot = null;
         return $this;
     }
 
@@ -72,7 +81,7 @@ class ThumbnailService
         return $this;
     }
 
-    public function urlSafe(string $variant = null): string
+    public function urlSafe(?string $variant = null): string
     {
         $originalMode = $this->silentMode;
         $this->silentMode = true;
@@ -127,6 +136,10 @@ class ThumbnailService
     protected function getCacheKeyOptimized(?string $variant): string
     {
         $keyString = $this->configKey . ':' . $this->sourcePath . ':' . ($variant ?? 'main');
+        $keyString .= ':' . $this->sourceDisk . ':' . serialize([
+            $this->config[$this->configKey] ?? [], config('thumbnails.crop_mode'),
+            config('thumbnails.dont_crop_background'), config('thumbnails.enable_smart_crop'),
+        ]);
         return 'thumb_url:' . crc32($keyString);
     }
 
@@ -137,17 +150,21 @@ class ThumbnailService
      * @param string|null $variant Optional variant name
      * @return array Merged configuration array
      */
-    protected function getEffectiveConfigOptimized(?string $variant): array
+    protected function getEffectiveConfigOptimized(?string $variant = null): array
     {
         $configKey = 'config:' . $this->configKey . ':' . ($variant ?? 'main');
+        $configKey .= ':' . sha1(serialize($this->config[$this->configKey]));
 
-        return CacheHelper::remember([self::CACHE_TAG, 'config'], $configKey, self::CACHE_TTL, function () use ($variant) {
+        return ThumbnailIdentity::settings(CacheHelper::remember([self::CACHE_TAG, 'config'], $configKey, self::CACHE_TTL, function () use ($variant) {
             $config = $this->config[$this->configKey];
-            if ($variant && isset($config['variants'][$variant])) {
-                $config = array_merge($config, $config['variants'][$variant]);
+            if ($variant !== null) {
+                if (!isset($config['variants'][$variant])) {
+                    throw new \InvalidArgumentException("Thumbnail variant '{$variant}' not found.");
+                }
+                $config = array_replace_recursive($config, $config['variants'][$variant]);
             }
             return $config;
-        });
+        }));
     }
 
     /**
@@ -160,16 +177,7 @@ class ThumbnailService
      */
     protected function generateThumbnailPathOptimized(array $config, ?string $variant): string
     {
-        $pathKey = 'path:' . crc32(serialize([
-            'smartcrop' => $config['smartcrop'],
-            'format' => $config['format'] ?? 'jpg',
-            'destination' => $config['destination']['path'],
-            'strategy' => $config['subdirectory_strategy'] ?? 'hash_prefix',
-        ]) . $this->sourcePath . ($variant ?? ''));
-
-        return CacheHelper::remember([self::CACHE_TAG, 'paths'], $pathKey, self::CACHE_TTL, function () use ($config, $variant) {
-            return $this->generateThumbnailPath($config, $variant);
-        });
+        return $this->generateThumbnailPath($config, $variant);
     }
 
     /**
@@ -177,11 +185,7 @@ class ThumbnailService
      */
     protected function getDiskOptimized(string $diskName)
     {
-        if (!isset(self::$diskCache[$diskName])) {
-            self::$diskCache[$diskName] = Storage::disk($diskName);
-        }
-
-        return self::$diskCache[$diskName];
+        return Storage::disk($diskName);
     }
 
     /**
@@ -194,15 +198,7 @@ class ThumbnailService
      */
     protected function thumbnailExistsOptimized($disk, string $path): bool
     {
-        $existsKey = 'thumb_exists:' . crc32($path);
-
-        return CacheHelper::remember([self::CACHE_TAG, 'exists'], $existsKey, self::CACHE_TTL, function () use ($disk, $path) {
-            try {
-                return $disk->exists($path);
-            } catch (\Exception $e) {
-                return false;
-            }
-        });
+        return $disk->exists($path);
     }
 
     /**
@@ -239,7 +235,7 @@ class ThumbnailService
     /**
      * Logging ottimizzato
      */
-    protected function logWarning(string $message, \Exception $e = null, ?string $variant = null): void
+    protected function logWarning(string $message, ?\Exception $e = null, ?string $variant = null): void
     {
         if (config('thumbnails.log_errors', true)) {
             try {
@@ -290,13 +286,14 @@ class ThumbnailService
     /**
      * Override exists per usare cache ottimizzata
      */
-    public function exists(string $variant = null): bool
+    public function exists(?string $variant = null): bool
     {
         if (!$this->configKey || !$this->sourcePath) {
             return false;
         }
 
         try {
+            $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk);
             $config = $this->getEffectiveConfigOptimized($variant);
             $thumbnailPath = $this->generateThumbnailPathOptimized($config, $variant);
             $disk = $this->getDiskOptimized($config['destination']['disk']);
@@ -312,53 +309,29 @@ class ThumbnailService
     public function warmUpCache(array $imagePaths, string $preset, array $variants = []): array
     {
         $results = ['warmed' => 0, 'errors' => 0, 'already_cached' => 0];
-
         foreach ($imagePaths as $imagePath) {
-            try {
-                $this->set($preset)->src($imagePath);
-
-                // Check se già in cache
-                $cacheKey = $this->getCacheKeyOptimized(null);
-                if (Cache::has($cacheKey)) {
-                    $results['already_cached']++;
-                    continue;
-                }
-
-                // Pre-calcola e metti in cache
-                $config = $this->getEffectiveConfigOptimized(null);
-                $thumbnailPath = $this->generateThumbnailPathOptimized($config, null);
-                $disk = $this->getDiskOptimized($config['destination']['disk']);
-
-                if ($this->thumbnailExistsOptimized($disk, $thumbnailPath)) {
-                    $url = $disk->url($thumbnailPath);
-                    CacheHelper::put([self::CACHE_TAG, $preset], $cacheKey, $url, self::CACHE_TTL);
-                    $results['warmed']++;
-                }
-
-                // Warm up varianti
-                foreach ($variants as $variant) {
-                    $variantKey = $this->getCacheKeyOptimized($variant);
-                    if (!Cache::has($variantKey)) {
-                        $variantConfig = $this->getEffectiveConfigOptimized($variant);
-                        $variantPath = $this->generateThumbnailPathOptimized($variantConfig, $variant);
-
-                        if ($this->thumbnailExistsOptimized($disk, $variantPath)) {
-                            $variantUrl = $disk->url($variantPath);
-                            CacheHelper::put([self::CACHE_TAG, $preset], $variantKey, $variantUrl, self::CACHE_TTL);
-                            $results['warmed']++;
-                        }
-                    } else {
-                        $results['already_cached']++;
+            foreach (array_merge([null], $variants) as $variant) {
+                try {
+                    $this->set($preset)->src($imagePath);
+                    $config = $this->getEffectiveConfigOptimized($variant);
+                    $path = $this->path($variant);
+                    if (!Storage::disk($config['destination']['disk'])->exists($path)) {
+                        continue;
                     }
+                    $key = 'url:v3:' . hash('sha256', $config['destination']['disk'] . ':' . $path);
+                    if (CacheHelper::has([self::CACHE_TAG, $preset], $key)) {
+                        $results['already_cached']++;
+                    } else {
+                        $this->url($variant);
+                        $results['warmed']++;
+                    }
+                } catch (\Exception $e) {
+                    $results['errors']++;
                 }
-            } catch (\Exception $e) {
-                $results['errors']++;
             }
         }
-
         return $results;
     }
-
     // ==================== TUTTI GLI ALTRI METODI RIMANGONO UGUALI ====================
     // (mantieni tutti i metodi esistenti senza modifiche)
 
@@ -408,7 +381,7 @@ class ThumbnailService
         ));
     }
 
-    protected function generateThumbnailSafe(array $config, string $thumbnailPath): void
+    protected function generateThumbnailSafe(array $config, string $thumbnailPath, Lock $lock, ?string $variant = null): void
     {
         $timeout = config('thumbnails.timeout', 30);
         set_time_limit($timeout);
@@ -421,7 +394,7 @@ class ThumbnailService
                 throw new \Exception("Source image not found: {$this->sourcePath}");
             }
 
-            $imageContent = Storage::disk($this->sourceDisk)->get($this->sourcePath);
+            $imageContent = ($this->sourceSnapshot ??= SourceImage::read($this->sourcePath, $this->sourceDisk))['content'];
             if (empty($imageContent)) {
                 throw new \Exception("Source image is empty: {$this->sourcePath}");
             }
@@ -439,46 +412,15 @@ class ThumbnailService
                 throw new \Exception("Invalid dimensions: {$config['smartcrop']}");
             }
 
-            $smartCropEnabled = $config['smart_crop_enabled'] ?? config('thumbnails.enable_smart_crop', true);
-
-            if ($smartCropEnabled) {
-                try {
-                    $image = $this->smartCropService->smartCrop($image, $width, $height);
-                } catch (\Exception $e) {
-                    // Fallback to basic crop if smart crop fails
-                    $image = ThumbnailGenerator::applyBasicCrop($image, $width, $height);
-                }
-            } else {
-                $image = ThumbnailGenerator::applyBasicCrop($image, $width, $height);
-            }
+            $image = ThumbnailGenerator::transform($image, $width, $height, $config, $this->smartCropService);
 
             $format = $config['format'] ?? config('thumbnails.default_format', 'jpg');
             $quality = $config['quality'] ?? config('thumbnails.default_quality', 85);
 
-            $processedImage = ThumbnailGenerator::convertFormat($image, $format, $quality);
+            $processedImage = ThumbnailGenerator::convertFormat($image, $format, $quality, $config);
 
-            try {
-                ThumbnailGenerator::ensureDestinationDirectory($config['destination']['disk'], dirname($thumbnailPath));
-            } catch (\Exception $dirError) {
-                $pathInfo = pathinfo($thumbnailPath);
-                $newThumbnailPath = $config['destination']['path'] . $pathInfo['basename'];
-
-                Log::warning("Directory creation failed, saving without subdirectory", [
-                    'original_path' => $thumbnailPath,
-                    'new_path' => $newThumbnailPath,
-                    'directory_error' => $dirError->getMessage(),
-                    'request_url' => $this->getCurrentUrl(),
-                ]);
-
-                $thumbnailPath = $newThumbnailPath;
-                ThumbnailGenerator::ensureDestinationDirectory($config['destination']['disk'], dirname($thumbnailPath));
-            }
-
-            $disk = Storage::disk($config['destination']['disk']);
-            $disk->put($thumbnailPath, $processedImage);
-
-            // Set public visibility if supported
-            ThumbnailGenerator::setPublicVisibility($config['destination']['disk'], $thumbnailPath);
+            $record = ThumbnailManifest::record($this->sourcePath, $this->sourceDisk, $this->configKey, $variant, $config, $this->sourceSnapshot['hash']);
+            ThumbnailPublisher::publish($config['destination']['disk'], $thumbnailPath, $processedImage, $lock, $record);
 
             // Cleanup memory (Intervention Image 3.x manages this automatically, but we can destroy explicitly)
             unset($image);
@@ -497,7 +439,7 @@ class ThumbnailService
     }
 
     // Mantieni tutti gli altri metodi esistenti identici...
-    protected function getEffectiveConfig(string $variant = null): array
+    protected function getEffectiveConfig(?string $variant = null): array
     {
         return $this->getEffectiveConfigOptimized($variant);
     }
@@ -510,31 +452,38 @@ class ThumbnailService
      * @param string|null $variant Optional variant name
      * @return string Generated file path
      */
-    protected function generateThumbnailPath(array $config, string $variant = null): string
+    protected function generateThumbnailPath(array $config, ?string $variant = null): string
     {
-        $pathInfo = pathinfo($this->sourcePath);
-        $filename = $pathInfo['filename'];
-
-        if (config('thumbnails.sanitize_filenames', true)) {
-            $filename = ThumbnailGenerator::sanitizeFilename($filename);
-        }
-
-        $format = $config['format'] ?? config('thumbnails.default_format', 'jpg');
-        $suffix = str_replace('x', '_', $config['smartcrop']);
-
-        if ($variant) {
-            $suffix .= '_' . $variant;
-        }
-
-        $subdirectory = ThumbnailGenerator::generateSubdirectory($filename, $config);
-
-        return $config['destination']['path'] .
-            $subdirectory .
-            $filename . '_' .
-            $suffix .
-            '.' . $format;
+        $this->sourceSnapshot ??= SourceImage::read($this->sourcePath, $this->sourceDisk);
+        return ThumbnailIdentity::path(
+            $this->sourcePath, $this->sourceDisk, $config, $variant, $this->sourceSnapshot['hash']
+        );
     }
 
+    /** Return the current content-addressed path without generating the thumbnail. */
+    public function path(?string $variant = null): string
+    {
+        $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk);
+        return $this->generateThumbnailPath($this->getEffectiveConfigOptimized($variant), $variant);
+    }
+
+    public function regenerate(?string $variant = null): string
+    {
+        return $this->url($variant, true);
+    }
+
+    /** Actual output dimensions, suitable for responsive width descriptors. */
+    public function imageData(?string $variant = null): array
+    {
+        $url = $this->url($variant);
+        $config = $this->getEffectiveConfigOptimized($variant);
+        $path = $this->generateThumbnailPath($config, $variant);
+        $size = @getimagesizefromstring(Storage::disk($config['destination']['disk'])->get($path));
+        if ($size === false) {
+            throw new \RuntimeException('Cannot determine generated thumbnail dimensions.');
+        }
+        return ['url' => $url, 'width' => $size[0], 'height' => $size[1]];
+    }
 
     protected function getFallbackUrl(): string
     {
@@ -546,7 +495,7 @@ class ThumbnailService
         if (config('thumbnails.fallback_to_original', false)) {
             try {
                 if (Storage::disk($this->sourceDisk)->exists($this->sourcePath)) {
-                    return Storage::disk($this->sourceDisk)->url($this->sourcePath);
+            return ThumbnailGenerator::diskUrl($this->sourceDisk, $this->sourcePath);
                 }
             } catch (\Exception $e) {
                 // Continua al placeholder generato
@@ -627,7 +576,7 @@ class ThumbnailService
         }
     }
 
-    public function getVariants(string $configKey = null): array
+    public function getVariants(?string $configKey = null): array
     {
         $configKey = $configKey ?? $this->configKey;
 
@@ -638,23 +587,9 @@ class ThumbnailService
         return $this->config[$configKey]['variants'] ?? [];
     }
 
-    public function isUpToDate(string $variant = null): bool
+    public function isUpToDate(?string $variant = null): bool
     {
-        if (!$this->exists($variant)) {
-            return false;
-        }
-
-        try {
-            $config = $this->getEffectiveConfigOptimized($variant);
-            $thumbnailPath = $this->generateThumbnailPathOptimized($config, $variant);
-
-            $sourceTime = Storage::disk($this->sourceDisk)->lastModified($this->sourcePath);
-            $thumbnailTime = $this->getDiskOptimized($config['destination']['disk'])->lastModified($thumbnailPath);
-
-            return $thumbnailTime >= $sourceTime;
-        } catch (\Exception $e) {
-            return false;
-        }
+        return $this->exists($variant);
     }
 
     /**
@@ -675,92 +610,44 @@ class ThumbnailService
     /**
      * Override metodo url con debug completo
      */
-    public function url(string $variant = null): string
+    public function url(?string $variant = null, bool $force = false): string
     {
         if (!$this->configKey || !$this->sourcePath) {
             return $this->getFallbackUrl();
         }
-
         try {
-            $startTime = microtime(true);
-            $cacheKey = $this->getCacheKeyOptimized($variant);
-
-            /*// Debug: Log cache check
-            \Log::info('🔍 CACHE CHECK', [
-                'key' => $cacheKey,
-                'exists' => Cache::has($cacheKey),
-                'value' => Cache::get($cacheKey),
-            ]);
-            */
-            if (config('thumbnails.cache_urls', true)) {
-                $cachedUrl = CacheHelper::get([self::CACHE_TAG, $this->configKey], $cacheKey);
-                if ($cachedUrl) {
-                    //   \Log::info('✅ CACHE HIT', ['key' => $cacheKey, 'url' => $cachedUrl]);
-                    $this->logTime($startTime, 'cache_hit_debug', $variant);
-                    return $cachedUrl;
-                }
-                // \Log::warning('❌ CACHE MISS', ['key' => $cacheKey]);
-            }
-
+            // Hash current bytes, not just size/mtime: replacements in the same second are detected.
+            $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk);
             $config = $this->getEffectiveConfigOptimized($variant);
-            $thumbnailPath = $this->generateThumbnailPathOptimized($config, $variant);
-            $disk = $this->getDiskOptimized($config['destination']['disk']);
-
-            if ($this->thumbnailExistsOptimized($disk, $thumbnailPath)) {
-                $url = $disk->url($thumbnailPath);
-
-                if (config('thumbnails.cache_urls', true)) {
-                    /*
-                    \Log::info('💾 SAVING TO CACHE', [
-                        'key' => $cacheKey,
-                        'url' => $url,
-                        'ttl' => self::CACHE_TTL
-                    ]);
-                    */
-                    CacheHelper::put([self::CACHE_TAG, $this->configKey], $cacheKey, $url, self::CACHE_TTL);
-
-                    // Verifica immediata
-                    $verify = CacheHelper::get([self::CACHE_TAG, $this->configKey], $cacheKey);
-                    /*
-                    \Log::info('🔍 CACHE VERIFY', [
-                        'key' => $cacheKey,
-                        'saved_url' => $url,
-                        'retrieved_url' => $verify,
-                        'success' => ($url === $verify)
-                    ]);
-                    */
-                }
-
-                $this->logTime($startTime, 'file_exists_debug', $variant);
+            $path = $this->generateThumbnailPath($config, $variant);
+            $disk = Storage::disk($config['destination']['disk']);
+            $cacheKey = 'url:v3:' . hash('sha256', $config['destination']['disk'] . ':' . $path);
+            $tags = [self::CACHE_TAG, $this->configKey];
+            if ($force || !config('thumbnails.cache_thumbnails', true) || !$disk->exists($path)) {
+                GenerationLock::run($config['destination']['disk'], $path, function (Lock $lock) use ($config, $path, $force, $variant, $disk) {
+                    // A worker may have completed this thumbnail while this request waited for its lock.
+                    if ($force || !config('thumbnails.cache_thumbnails', true) || !$disk->exists($path)) {
+                        $this->generateThumbnailSafe($config, $path, $lock, $variant);
+                    }
+                });
+                CacheHelper::forget($tags, $cacheKey);
+            }
+            // Check the file even on cache hits: purges or external deletions cannot leave a stale URL.
+            if (config('thumbnails.cache_urls', true) && ($url = CacheHelper::get($tags, $cacheKey))) {
                 return $url;
             }
-
-            // Generazione thumbnail
-            $this->generateThumbnailSafe($config, $thumbnailPath);
-            $url = $disk->url($thumbnailPath);
-
+            $url = ThumbnailGenerator::diskUrl($config['destination']['disk'], $path);
             if (config('thumbnails.cache_urls', true)) {
-                //\Log::info('💾 SAVING GENERATED TO CACHE', ['key' => $cacheKey, 'url' => $url]);
-                CacheHelper::put([self::CACHE_TAG, $this->configKey], $cacheKey, $url, self::CACHE_TTL);
+                CacheHelper::put($tags, $cacheKey, $url, (int) config('thumbnails.cache_ttl', 3600));
             }
-
-            $this->invalidateExistsCache($thumbnailPath);
-            $this->setExistsCache($thumbnailPath, true);
-
-            $this->logTime($startTime, 'generated_debug', $variant);
             return $url;
         } catch (\Exception $e) {
             $this->logWarning('Thumbnail failed, using fallback', $e, $variant);
-
             if (!$this->silentMode) {
                 throw $e;
             }
-
-            $fallbackUrl = $this->getFallbackUrl();
-            if (config('thumbnails.cache_urls', true)) {
-                CacheHelper::put([self::CACHE_TAG, $this->configKey], $cacheKey ?? $this->getCacheKeyOptimized($variant), $fallbackUrl, 300);
-            }
-            return $fallbackUrl;
+            // Do not cache transient failures under a successful thumbnail identity.
+            return $this->getFallbackUrl();
         }
     }
 
@@ -770,59 +657,14 @@ class ThumbnailService
      */
     public function clearCache(): void
     {
-        /*
-        \Log::warning('🧹 CLEAR CACHE CALLED', [
-            'config_key' => $this->configKey,
-            'source_path' => $this->sourcePath,
-            'backtrace' => collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5))
-                ->map(fn($trace) => ($trace['class'] ?? '') . '::' . ($trace['function'] ?? ''))
-                ->take(5)
-                ->toArray()
-        ]);
-*/
-        if (!$this->configKey || !$this->sourcePath) {
-            return;
+        if ($this->configKey) {
+            CacheHelper::flush([$this->configKey]);
         }
-
-        $cacheKey = $this->getCacheKeyOptimized(null);
-        //\Log::info('🗑️ FORGETTING', ['key' => $cacheKey]);
-        CacheHelper::forget([self::CACHE_TAG, $this->configKey], $cacheKey);
-
-        // Clear cache correlate
-        try {
-            $config = $this->getEffectiveConfigOptimized(null);
-            $thumbnailPath = $this->generateThumbnailPathOptimized($config, null);
-
-            // Clear cache esistenza
-            $existsKey = 'thumb_exists:' . crc32($thumbnailPath);
-            CacheHelper::forget([self::CACHE_TAG, 'exists'], $existsKey);
-            /*
-            Log::info('🗑️ Cleared Related Caches', [
-                'exists_key' => $existsKey,
-            ]);
-*/
-            // Clear varianti
-            if (isset($config['variants'])) {
-                foreach (array_keys($config['variants']) as $variant) {
-                    $variantKey = $this->getCacheKeyOptimized($variant);
-                    CacheHelper::forget([self::CACHE_TAG, $this->configKey], $variantKey);
-                    /*
-                    Log::info('🗑️ Cleared Variant Cache', [
-                        'variant' => $variant,
-                        'variant_key' => $variantKey,
-                    ]);
-                    */
-                }
-            }
-        } catch (\Exception $e) {
-            Log::error('Error during cache clear', [
-                'error' => $e->getMessage(),
-            ]);
-        }
+        $this->sourceSnapshot = null;
     }
 
     // Override di qualsiasi altro metodo che potrebbe fare Cache::forget
-    public function regenerateIfNeeded(string $variant = null): string
+    public function regenerateIfNeeded(?string $variant = null): string
     {
         Log::info('🔄 Regenerate If Needed Called', [
             'variant' => $variant,
@@ -851,69 +693,55 @@ class ThumbnailService
      */
     public function purgeAll(): int
     {
-        $purgedCount = 0;
-
-        foreach ($this->config as $preset) {
-            $disk = $preset['destination']['disk'];
-            $path = $preset['destination']['path'];
-
-            try {
-                $files = Storage::disk($disk)->allFiles($path);
-
-                foreach ($files as $file) {
-                    if ($this->isThumbnailFile($file)) {
-                        Storage::disk($disk)->delete($file);
-                        $purgedCount++;
-                    }
-                }
-
-                if (config('thumbnails.auto_cleanup_empty_dirs', true)) {
-                    $this->cleanEmptyDirectories($disk, $path);
-                }
-            } catch (\Exception $e) {
-                if (config('thumbnails.log_errors', true)) {
-                    Log::warning("Could not purge thumbnails from {$disk}:{$path} - " . $e->getMessage());
-                }
-            }
+        $count = 0;
+        foreach (array_keys($this->config) as $preset) {
+            $count += $this->purgePreset($preset);
         }
-
-        // Only flush thumbnail-related cache, not entire application cache
         CacheHelper::flush([self::CACHE_TAG]);
-        return $purgedCount;
+        return $count;
     }
 
     public function purgePreset(string $preset): int
     {
         if (!isset($this->config[$preset])) {
-            throw new \Exception("Preset '{$preset}' not found");
+            throw new \InvalidArgumentException("Preset '{$preset}' not found");
         }
-
-        $config = $this->config[$preset];
-        $disk = $config['destination']['disk'];
-        $basePath = $config['destination']['path'];
-        $purgedCount = 0;
-
-        try {
-            $files = Storage::disk($disk)->allFiles($basePath);
-
-            foreach ($files as $file) {
-                if ($this->isThumbnailFile($file)) {
-                    Storage::disk($disk)->delete($file);
-                    $purgedCount++;
+        $base = $this->config[$preset];
+        $destinations = [$base['destination']];
+        foreach ($base['variants'] ?? [] as $variant) {
+            $destinations[] = array_replace($base['destination'], $variant['destination'] ?? []);
+        }
+        $count = 0;
+        foreach (array_unique(array_map('serialize', $destinations)) as $serialized) {
+            $destination = unserialize($serialized, ['allowed_classes' => false]);
+            $disk = Storage::disk($destination['disk']);
+            foreach ($disk->allFiles($destination['path']) as $path) {
+                if ($this->isThumbnailFile($path)) {
+                    $count += GenerationLock::run($destination['disk'], $path, function (Lock $lock) use ($disk, $path, $destination) {
+                        if (!$disk->exists($path)) {
+                            return 0;
+                        }
+                        GenerationLock::assertOwned($lock);
+                        if (!$disk->delete($path)) {
+                            throw new \RuntimeException("Could not delete thumbnail: {$path}");
+                        }
+                        $index = Storage::disk(ThumbnailManifest::disk());
+                        $record = ThumbnailManifest::path($destination['disk'], $path);
+                        if ($index->exists($record) && !$index->delete($record)) {
+                            throw new \RuntimeException('Could not remove the purged thumbnail record.');
+                        }
+                        return 1;
+                    });
                 }
             }
-
             if (config('thumbnails.auto_cleanup_empty_dirs', true)) {
-                $strategy = $config['subdirectory_strategy'] ?? config('thumbnails.default_subdirectory_strategy', 'hash_prefix');
-                $this->cleanEmptyDirectories($disk, $basePath, $strategy);
+                $this->cleanEmptyDirectories($destination['disk'], $destination['path']);
             }
-        } catch (\Exception $e) {
-            throw new \Exception("Could not purge preset '{$preset}': " . $e->getMessage());
         }
-
-        return $purgedCount;
+        CacheHelper::flush([$preset]);
+        $this->sourceSnapshot = null;
+        return $count;
     }
-
     protected function cleanEmptyDirectories(string $disk, string $basePath, string $strategy = 'hash_prefix'): void
     {
         if ($strategy === 'none') {
@@ -957,7 +785,7 @@ class ThumbnailService
     protected function isThumbnailFile(string $filePath): bool
     {
         $filename = basename($filePath);
-        return preg_match('/.*_\d+_\d+(_\w+)?\.(jpg|jpeg|png|webp)$/i', $filename);
+        return preg_match('/.*_\d+_\d+([_\w-]+)?\.(jpg|jpeg|png|webp|avif)$/i', $filename);
     }
 
     public function analyzeDistribution(string $preset): array
@@ -1228,7 +1056,7 @@ class ThumbnailService
         foreach ($strategies as $strategy) {
             try {
                 $config = ['subdirectory_strategy' => $strategy];
-                $subdir = $this->generateSubdirectory($filename, $config);
+                $subdir = ThumbnailGenerator::generateSubdirectory($filename, $config);
 
                 $results[$strategy] = [
                     'success' => true,
@@ -1241,7 +1069,7 @@ class ThumbnailService
                     $testPath = $presetConfig['destination']['path'] . $subdir;
 
                     try {
-                        $this->ensureDestinationDirectory($presetConfig['destination']['disk'], $testPath);
+                        ThumbnailGenerator::ensureDestinationDirectory($presetConfig['destination']['disk'], $testPath);
                         $results[$strategy]['directory_creation'] = 'success';
                     } catch (\Exception $dirError) {
                         $results[$strategy]['directory_creation'] = 'failed: ' . $dirError->getMessage();
@@ -1259,7 +1087,7 @@ class ThumbnailService
         return $results;
     }
 
-    public function debugInfo(string $variant = null): array
+    public function debugInfo(?string $variant = null): array
     {
         if (!$this->configKey || !$this->sourcePath) {
             return ['error' => 'Configuration key and source path must be set'];
@@ -1287,12 +1115,12 @@ class ThumbnailService
             ];
 
             $pathInfo = pathinfo($this->sourcePath);
-            $filename = $pathInfo['filename'] ?? 'unknown';
-            $subdir = $this->generateSubdirectory($filename, $config);
+            $filename = $pathInfo['filename'];
+            $subdir = ThumbnailGenerator::generateSubdirectory($filename, $config);
             $info['generated_subdirectory'] = $subdir;
 
             try {
-                $this->ensureDestinationDirectory($config['destination']['disk'], dirname($thumbnailPath));
+                ThumbnailGenerator::ensureDestinationDirectory($config['destination']['disk'], dirname($thumbnailPath));
                 $info['directory_creation'] = 'success';
             } catch (\Exception $dirError) {
                 $info['directory_creation'] = 'failed: ' . $dirError->getMessage();
@@ -1353,7 +1181,7 @@ class ThumbnailService
         return $results;
     }
 
-    public function getPerformanceMetrics(string $variant = null): array
+    public function getPerformanceMetrics(?string $variant = null): array
     {
         $startTime = microtime(true);
         $startMemory = memory_get_usage(true);

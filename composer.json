@@ -1,6 +1,6 @@
 {
     "name": "askancy/laravel-smart-thumbnails",
-    "description": "Advanced thumbnail generation with smart cropping for Laravel applications",
+    "description": "Content-aware thumbnails, gradient padding, responsive images and safe version cleanup for Laravel",
     "type": "library",
     "license": "MIT",
     "keywords": [
@@ -12,7 +12,9 @@
         "intervention",
         "resize",
         "avif",
-        "webp"
+        "webp",
+        "dont-crop",
+        "responsive-images"
     ],
   "authors": [
     {
@@ -27,7 +29,7 @@
         "ext-gd": "*"
     },
     "suggest": {
-        "ext-imagick": "For advanced image processing capabilities and AVIF format support",
+        "ext-imagick": "Optional Imagick image processing driver; compatible GD builds also support AVIF",
         "ext-redis": "For cache tagging support with Redis driver",
         "ext-memcached": "For cache tagging support with Memcached driver"
     },
@@ -63,8 +65,8 @@
         "test-coverage": "vendor/bin/phpunit --coverage-html coverage",
         "test-unit": "vendor/bin/phpunit --testsuite Unit",
         "test-feature": "vendor/bin/phpunit --testsuite Feature",
-        "analyse": "phpstan analyse src --level=5 || true",
-        "format": "php-cs-fixer fix src || true"
+        "analyse": "phpstan analyse src --level=5",
+        "format": "php-cs-fixer fix src"
     },
     "minimum-stability": "stable",
     "prefer-stable": true

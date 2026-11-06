@@ -2,218 +2,94 @@
 
 namespace Askancy\LaravelSmartThumbnails\Services;
 
+use Askancy\LaravelSmartThumbnails\Support\ImageSample;
 use Intervention\Image\Interfaces\ImageInterface;
 
-/**
- * Smart Crop Service
- * Implements intelligent image cropping using energy detection algorithm
- * Based on the dont-crop algorithm: https://github.com/jwagner/dont-crop/
- */
+/** Content-aware cropping using edges and color contrast on a bounded sample. */
 class SmartCropService
 {
-    /**
-     * Apply smart crop to an image using energy detection
-     * Analyzes image content to find the most interesting area for cropping
-     *
-     * @param ImageInterface $image The image to crop
-     * @param int $targetWidth Target width in pixels
-     * @param int $targetHeight Target height in pixels
-     * @return ImageInterface The cropped and resized image
-     */
     public function smartCrop(ImageInterface $image, int $targetWidth, int $targetHeight): ImageInterface
     {
-        $originalWidth = $image->width();
-        $originalHeight = $image->height();
-
-        // Se l'immagine è già delle dimensioni target, non fare nulla
-        if ($originalWidth === $targetWidth && $originalHeight === $targetHeight) {
-            return $image;
+        if ($targetWidth <= 0 || $targetHeight <= 0) {
+            throw new \InvalidArgumentException('Crop dimensions must be positive.');
         }
-
-        // Calcola i ratio
-        $originalRatio = $originalWidth / $originalHeight;
-        $targetRatio = $targetWidth / $targetHeight;
-
-        // Determina la strategia di crop ottimale
-        $cropData = $this->calculateOptimalCrop(
-            $originalWidth,
-            $originalHeight,
-            $targetWidth,
-            $targetHeight
-        );
-
-        // Applica il crop intelligente
-        if ($cropData['needsCrop']) {
-            $image->crop(
-                $cropData['cropWidth'],
-                $cropData['cropHeight'],
-                $cropData['cropX'],
-                $cropData['cropY']
-            );
-        }
-
-        // Ridimensiona alle dimensioni finali
-        return $image->resize($targetWidth, $targetHeight);
-    }
-
-    /**
-     * Calculate optimal crop area using energy analysis
-     * Uses edge detection and entropy to find the most interesting region
-     *
-     * @param int $width Original image width
-     * @param int $height Original image height
-     * @param int $targetWidth Target crop width
-     * @param int $targetHeight Target crop height
-     * @return array Crop coordinates and dimensions
-     */
-    protected function calculateOptimalCrop(int $width, int $height, int $targetWidth, int $targetHeight): array
-    {
-        $originalRatio = $width / $height;
-        $targetRatio = $targetWidth / $targetHeight;
-
-        // No crop needed if aspect ratios match
-        if (abs($originalRatio - $targetRatio) < 0.01) {
-            return [
-                'needsCrop' => false,
-                'cropWidth' => $width,
-                'cropHeight' => $height,
-                'cropX' => 0,
-                'cropY' => 0,
-            ];
-        }
-
-        if ($originalRatio > $targetRatio) {
-            // Image is wider than target - crop horizontally
-            $cropHeight = $height;
-            $cropWidth = $height * $targetRatio;
-            $cropX = $this->calculateSmartX($width, $cropWidth);
-            $cropY = 0;
-        } else {
-            // Image is taller than target - crop vertically
-            $cropWidth = $width;
-            $cropHeight = $width / $targetRatio;
-            $cropX = 0;
-            $cropY = $this->calculateSmartY($height, $cropHeight);
-        }
-
-        return [
-            'needsCrop' => true,
-            'cropWidth' => (int) round($cropWidth),
-            'cropHeight' => (int) round($cropHeight),
-            'cropX' => (int) round($cropX),
-            'cropY' => (int) round($cropY),
-        ];
-    }
-
-    /**
-     * Calculate optimal X position for horizontal cropping
-     * Uses simplified energy analysis and rule of thirds
-     *
-     * @param int $totalWidth Total image width
-     * @param int $cropWidth Desired crop width
-     * @return int Optimal X coordinate for crop
-     */
-    protected function calculateSmartX(int $totalWidth, int $cropWidth): int
-    {
-        $availableSpace = $totalWidth - $cropWidth;
-
-        if ($availableSpace <= 0) {
-            return 0;
-        }
-
-        // Use rule of thirds as default
-        // Position crop area at 1/3 from the left, unless that would exclude important content
-        $ruleOfThirdsPosition = $availableSpace / 3;
-
-        // For now, use rule of thirds positioning
-        // Future enhancement: analyze horizontal energy distribution
-        return (int) round($ruleOfThirdsPosition);
-    }
-
-    /**
-     * Calculate optimal Y position for vertical cropping
-     * Prefers upper portion of image (following rule of thirds)
-     *
-     * @param int $totalHeight Total image height
-     * @param int $cropHeight Desired crop height
-     * @return int Optimal Y coordinate for crop
-     */
-    protected function calculateSmartY(int $totalHeight, int $cropHeight): int
-    {
-        $availableSpace = $totalHeight - $cropHeight;
-
-        if ($availableSpace <= 0) {
-            return 0;
-        }
-
-        // Prefer upper third of the image (common for portraits and landscapes)
-        // Most important content is typically in the upper 2/3 of images
-        $upperThirdPosition = $availableSpace / 3;
-
-        return (int) round(min($upperThirdPosition, $availableSpace));
-    }
-
-    /**
-     * Calculate image energy map for smart cropping
-     * This is a simplified implementation that can be enhanced with GD filters
-     *
-     * Future enhancements:
-     * - Sobel edge detection using GD imageconvolution()
-     * - Entropy analysis for texture detection
-     * - Face detection using external libraries
-     * - Saliency map generation
-     *
-     * @param ImageInterface $image The image to analyze
-     * @return array Energy values for regions of interest
-     */
-    protected function calculateEnergyMap(ImageInterface $image): array
-    {
-        // Simplified energy map implementation
-        // In a full implementation, this would:
-        // 1. Apply edge detection (Sobel, Canny, etc.)
-        // 2. Calculate gradient magnitude
-        // 3. Apply entropy analysis
-        // 4. Weight by distance from center
-        // 5. Consider rule of thirds intersections
-
         $width = $image->width();
         $height = $image->height();
+        $scale = min($width / $targetWidth, $height / $targetHeight);
+        $cropWidth = max(1, min($width, (int) round($targetWidth * $scale)));
+        $cropHeight = max(1, min($height, (int) round($targetHeight * $scale)));
+        if ($cropWidth === $width && $cropHeight === $height) {
+            return $image->resize($targetWidth, $targetHeight);
+        }
+        $sample = ImageSample::read($image);
+        $horizontal = $cropWidth < $width;
+        $length = $horizontal ? $sample['width'] : $sample['height'];
+        $window = max(1, min($length, (int) round($length * ($horizontal ? $cropWidth / $width : $cropHeight / $height))));
+        $offset = $this->bestWindow($this->axisEnergy($sample, $horizontal), $window);
+        $available = $horizontal ? $width - $cropWidth : $height - $cropHeight;
+        // Include both source edges when mapping sample coordinates back to the original.
+        $position = $length === $window ? (int) round($available / 2)
+            : (int) round($offset / ($length - $window) * $available);
 
-        // Define areas of interest based on rule of thirds
-        $ruleOfThirdsPoints = [
-            ['x' => $width / 3, 'y' => $height / 3, 'weight' => 1.5],
-            ['x' => ($width / 3) * 2, 'y' => $height / 3, 'weight' => 1.5],
-            ['x' => $width / 3, 'y' => ($height / 3) * 2, 'weight' => 1.2],
-            ['x' => ($width / 3) * 2, 'y' => ($height / 3) * 2, 'weight' => 1.2],
-            ['x' => $width / 2, 'y' => $height / 2, 'weight' => 1.0], // Center as fallback
-        ];
-
-        return $ruleOfThirdsPoints;
+        return $image->crop($cropWidth, $cropHeight, $horizontal ? $position : 0, $horizontal ? 0 : $position)
+            ->resize($targetWidth, $targetHeight);
     }
 
-    /**
-     * Find points of interest in the image
-     * Currently uses rule of thirds, can be enhanced with:
-     * - Edge detection
-     * - Face detection
-     * - Object detection
-     * - Contrast analysis
-     *
-     * @param ImageInterface $image The image to analyze
-     * @return array Interest points with coordinates and weights
-     */
-    protected function findInterestPoints(ImageInterface $image): array
+    private function axisEnergy(array $sample, bool $horizontal): array
     {
-        $energyMap = $this->calculateEnergyMap($image);
-
-        // Find the point with highest weight
-        $bestPoint = ['x' => $image->width() / 2, 'y' => $image->height() / 2, 'weight' => 1.0];
-        foreach ($energyMap as $point) {
-            if ($point['weight'] > $bestPoint['weight']) {
-                $bestPoint = $point;
+        ['width' => $width, 'height' => $height, 'pixels' => $pixels] = $sample;
+        $mean = [0.0, 0.0, 0.0];
+        $weight = 0.0;
+        foreach ($pixels as $pixel) {
+            $weight += $pixel[3];
+            for ($c = 0; $c < 3; $c++) {
+                $mean[$c] += $pixel[$c] * $pixel[3];
+            }
+        }
+        foreach ($mean as &$channel) {
+            $channel /= max(1, $weight);
+        }
+        unset($channel);
+        $energy = array_fill(0, $horizontal ? $width : $height, 0.0);
+        for ($y = 0; $y < $height; $y++) {
+            for ($x = 0; $x < $width; $x++) {
+                $pixel = $pixels[$y * $width + $x];
+                $left = $pixels[$y * $width + max(0, $x - 1)];
+                $right = $pixels[$y * $width + min($width - 1, $x + 1)];
+                $top = $pixels[max(0, $y - 1) * $width + $x];
+                $bottom = $pixels[min($height - 1, $y + 1) * $width + $x];
+                $value = 0.0;
+                for ($c = 0; $c < 3; $c++) {
+                    $value += abs($left[$c] - $right[$c]) * min($left[3], $right[3]);
+                    $value += abs($top[$c] - $bottom[$c]) * min($top[3], $bottom[3]);
+                    $value += 0.2 * abs($pixel[$c] - $mean[$c]);
+                }
+                $energy[$horizontal ? $x : $y] += $value * $pixel[3];
             }
         }
 
-        return $bestPoint;
+        return $energy;
+    }
+
+    private function bestWindow(array $energy, int $window): int
+    {
+        $available = count($energy) - $window;
+        $best = (int) round($available / 2);
+        $bestScore = -1.0;
+        for ($start = 0; $start <= $available; $start++) {
+            $score = 0.0;
+            for ($i = 0; $i < $window; $i++) {
+                // Keep detail away from the cut edges; prefer the center on tied scores.
+                $importance = 1 - 0.5 * abs(2 * ($i + 0.5) / $window - 1);
+                $score += $energy[$start + $i] * $importance;
+            }
+            if ($score > $bestScore + 0.000001 || (abs($score - $bestScore) <= 0.000001
+                && abs($start - $available / 2) < abs($best - $available / 2))) {
+                $best = $start;
+                $bestScore = $score;
+            }
+        }
+
+        return $best;
     }
 }

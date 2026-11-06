@@ -38,7 +38,7 @@ class ThumbnailIntegrationTest extends TestCase
             ->url();
 
         // Verifica che il file thumbnail sia stato creato
-        $this->assertTrue(Storage::disk('local')->exists('test-crops/test-image_100_100.jpg'));
+        $this->assertTrue(Storage::disk('local')->exists($this->thumbnailPath('test-image.jpg')));
     }
 
     public function test_thumbnail_is_cached()
@@ -48,7 +48,7 @@ class ThumbnailIntegrationTest extends TestCase
             ->src('test-image.jpg', 'local')
             ->url();
 
-        $firstGenerationTime = Storage::disk('local')->lastModified('test-crops/test-image_100_100.jpg');
+        $firstGenerationTime = Storage::disk('local')->lastModified($this->thumbnailPath('test-image.jpg'));
 
         // Aspetta un secondo
         sleep(1);
@@ -58,7 +58,7 @@ class ThumbnailIntegrationTest extends TestCase
             ->src('test-image.jpg', 'local')
             ->url();
 
-        $secondGenerationTime = Storage::disk('local')->lastModified('test-crops/test-image_100_100.jpg');
+        $secondGenerationTime = Storage::disk('local')->lastModified($this->thumbnailPath('test-image.jpg'));
 
         $this->assertEquals($url1, $url2);
         $this->assertEquals($firstGenerationTime, $secondGenerationTime);
@@ -81,12 +81,12 @@ class ThumbnailIntegrationTest extends TestCase
         Thumbnail::set('test')->src('test-image.jpg', 'local')->url();
 
         // Verifica che esistano
-        $this->assertTrue(Storage::disk('local')->exists('test-crops/test-image_100_100.jpg'));
+        $this->assertTrue(Storage::disk('local')->exists($this->thumbnailPath('test-image.jpg')));
 
         // Purge
         $purgedCount = Thumbnail::purgePreset('test');
 
         $this->assertGreaterThan(0, $purgedCount);
-        $this->assertFalse(Storage::disk('local')->exists('test-crops/test-image_100_100.jpg'));
+        $this->assertFalse(Storage::disk('local')->exists($this->thumbnailPath('test-image.jpg')));
     }
 }

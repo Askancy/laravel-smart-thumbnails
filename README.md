@@ -1,5 +1,7 @@
 # Laravel Smart Thumbnails
 
+Version **4.0.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 3.x.
+
 <p align="center">
   <img src="https://github.com/user-attachments/assets/3c71d5d7-19ca-4703-9612-d3eeaed23183" alt="Laravel Smart Thumbnails Demo" width="600"/>
 </p>
@@ -15,7 +17,8 @@
 
 ## ✨ Features
 
-- 🧠 **Intelligent Smart Crop Algorithm** - Energy-based detection ensures the most important parts of your images are never cropped out.
+- 🧠 **Content-Aware Smart Crop** - Scores edges and color contrast to choose a crop, with center positioning when no content stands out.
+- 🌈 **Dont-Crop Mode** - Preserves the complete image with padding using a fitted gradient, a dominant color, or a chosen background.
 - 🛡️ **Bulletproof Error Handling** - Fails gracefully with automatic fallbacks (original image, placeholders, or generated SVGs) to guarantee your layout remains intact.
 - 🖼️ **Modern Format Support** - Seamlessly generates modern image formats, including WebP and AVIF, for maximum compression and performance.
 - 📁 **Massive Scale Subdirectories** - Handles millions of thumbnails efficiently via customizable subdirectory distribution strategies (e.g., hash prefixes, dates).
@@ -28,10 +31,11 @@
 
 ## 📋 Requirements
 
-- **PHP** 8.1 or higher
-- **Laravel** 10.0, 11.0, or 12.0
-- **Intervention Image** 3.9+
-- **GD** or **ImageMagick** PHP Extension (ImageMagick is required for AVIF support)
+- **PHP** 8.2 or higher (8.x)
+- **Laravel** 11.x or 12.x
+- **Intervention Image** 3.9 or higher (3.x)
+- **GD** PHP extension (required by Composer); **Imagick** is an optional processing driver
+- **AVIF:** the selected driver must have AVIF codec support enabled
 - *Optional:* Redis or Memcached (for cache tagging capabilities)
 
 ---
@@ -86,6 +90,30 @@ Leverage configured variants to easily render `<picture>` tags for responsive de
 </picture>
 ```
 
+### Responsive Blade Component
+
+Use the registered `<x-smart-thumbnail>` component to generate an `<img>` with `srcset`, `sizes`,
+and the actual output dimensions:
+
+```blade
+<x-smart-thumbnail
+    :src="$product->image"
+    preset="products"
+    disk="public"
+    :variants="['thumb', 'card', 'detail']"
+    sizes="(max-width: 640px) 100vw, 400px"
+    :alt="$product->name"
+    class="product-photo"
+/>
+```
+
+The main preset supplies `src`. Omit `variants` to consider all configured variants. Candidates are
+sorted by actual width, duplicate widths are removed, and variants with a different aspect ratio are
+excluded from `srcset`. Use `<picture>` for art direction with different ratios. The component uses
+`loading="lazy"` and `decoding="async"` by default; normal HTML attributes can override these defaults.
+If the main image cannot be generated, the component renders the configured fallback without invented
+width descriptors. Unavailable variants do not prevent the main image from rendering.
+
 ---
 
 ## ⚙️ Configuration
@@ -116,14 +144,149 @@ Your `config/thumbnails.php` file is where the magic happens. You can define mul
 ],
 ```
 
-### AVIF Format Support
-For ultra-modern web performance, AVIF provides ~50% smaller file sizes than JPEG and ~30% smaller than WebP.
-To use AVIF, ensure you have the **ImageMagick** extension installed and update your driver in `config/thumbnails.php`:
+### Smart Crop, Dont-Crop, and Center Crop
+
+Choose `crop_mode` in a preset or variant:
+
+| Mode | Behavior |
+| --- | --- |
+| `smart` | Fills the requested size by selecting a crop using image edges and color contrast. |
+| `dont_crop` | Fits the whole source inside the requested size, centered, with padding. |
+| `center` | Fills the requested size with a center crop. |
 
 ```php
-'intervention_driver' => 'imagick', // Must be 'imagick', GD does not support AVIF yet
+'products' => [
+    'format' => 'avif', // Also works with webp, jpg, and png
+    'smartcrop' => '400x400', // Output dimensions for all three modes
+    'destination' => ['disk' => 'public', 'path' => 'thumbnails/products/'],
+    'crop_mode' => 'smart',
+    'variants' => [
+        'full' => [
+            'crop_mode' => 'dont_crop',
+            'dont_crop_background' => 'gradient',
+        ],
+    ],
+],
 ```
-Then, simply set `'format' => 'avif'` in your presets!
+
+```php
+Thumbnail::set('products')->src('photos/example.avif', 'public')->urlSafe();
+Thumbnail::set('products')->src('photos/example.avif', 'public')->urlSafe('full');
+```
+
+`dont_crop_background` accepts `gradient` (default), `dominant`, or an Intervention Image color
+such as `#ffffff` or `transparent`. Use PNG, WebP, or AVIF output for transparency.
+The gradient is fitted to sampled source colors along the padding direction. The foreground keeps its
+aspect ratio and, by default, may be enlarged to fit the output dimensions.
+
+The global `crop_mode` defaults to `null` for compatibility: when no explicit mode is selected,
+`smart_crop_enabled` in the preset, or the global `enable_smart_crop`, selects smart or center cropping.
+An explicit `crop_mode` overrides those flags. Variants inherit preset options and can override the mode
+and background. Global `crop_mode` and `dont_crop_background` supply defaults.
+
+Smart analysis uses a sample of at most 96 × 96 pixels, for both synchronous generation and queue jobs,
+including large images. It is a heuristic based on visual detail, without face or object recognition;
+it cannot guarantee that every subject remains inside a crop. Choose `dont_crop` when retaining every
+part of the source matters. This package provides independent PHP implementations inspired by the ideas
+behind [smartcrop.js](https://github.com/jwagner/smartcrop.js) and
+[dont-crop](https://github.com/jwagner/dont-crop), not ports of their complete algorithms.
+
+You can also extract gradient colors and a palette directly:
+
+```php
+use Askancy\LaravelSmartThumbnails\Services\DontCropService;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
+
+$image = ThumbnailGenerator::createImageManager()->read($imageBytes);
+$service = app(DontCropService::class);
+$gradient = $service->fitGradient($image); // start, end (hex colors), direction
+$palette = $service->getPalette($image, 5); // Up to 5 hex colors, most common first
+```
+
+Gradient fitting uses opacity-weighted linear regression in RGB. Palette extraction uses a weighted
+RGB histogram; these are simplified alternatives to dont-crop's Lab-based gradient and palette processing.
+Fully transparent sources use white as the automatic background fallback.
+
+### Avoid Enlarging Small Images
+
+Set `allow_upscale` globally, in a preset, or in a variant (default: `true` for compatibility):
+
+```php
+'allow_upscale' => false,
+```
+
+With `smart` or `center`, output dimensions shrink proportionally when the source cannot fill the requested
+crop at its native resolution. For example, a 40 × 20 source requested as 100 × 100 produces 20 × 20 pixels.
+With `dont_crop`, the canvas retains the requested dimensions and the foreground is never enlarged;
+the remaining area is filled by the selected background. Variants can set `allow_upscale => true`
+independently. The Blade component uses the resulting dimensions, rather than the requested dimensions.
+
+### Source Identity, Freshness, and Validation
+
+Generated paths include a SHA-256-derived directory identifying the source disk, full source path,
+source bytes, rendering settings, and variant. Identical basenames in different directories or disks
+remain distinct. Replacing the source or changing quality, crop mode, background, or other rendering
+settings produces a new URL, including replacements with identical size and modification time.
+
+Source bytes are read and hashed on each lookup to detect replacements reliably; cache hits avoid
+decoding and rendering, but still require source I/O, including on remote disks. Existing output files
+are checked before a cached URL is returned. Failures are not cached as successful thumbnail URLs.
+Old content versions remain on disk until purged.
+
+`max_file_size` is enforced before reading the full source and again against the bytes read. It defaults
+to 10 MiB; set it to `0` to disable the byte limit. With `validate_image_content => true`, the package checks
+the extension allowlist, recognizes the image header, and verifies that MIME type matches the extension.
+Disabling content validation does not disable the byte or pixel limits. These checks apply both to normal
+requests and queued jobs. Invalid output formats, dimensions, quality, and PNG compression are rejected.
+
+`cache_urls`, `cache_thumbnails`, and the URL `cache_ttl` are honored. Purges invalidate the relevant
+thumbnail URL namespace, including with file/database cache stores, without clearing unrelated application
+data. `png_compression`, `webp_lossless`, and `enable_progressive_jpeg` can be overridden per preset or variant
+and are applied by the encoder.
+
+**Migration:** the new identity-based paths intentionally differ from legacy paths. New requests generate
+the current versions automatically; stored old URLs are not rewritten. To remove old thumbnails, purge
+the affected preset (including its configured variant destinations):
+
+```bash
+php artisan thumbnail:purge products --confirm
+```
+
+### AVIF Format Support
+AVIF is supported both as a source image and as a thumbnail output format.
+Both **GD** and **Imagick** can process AVIF when their installed libraries include AVIF support.
+The source format is detected from the image contents. When you request a thumbnail with `url()` or
+`urlSafe()`, the package reads the source and crops it to the preset's `smartcrop` dimensions.
+The selected crop mode applies equally to AVIF and other source formats. Uploading a file alone does not
+trigger thumbnail generation.
+
+For example, with the default `gallery` preset, this reads an AVIF source, applies the configured crop,
+and produces a WebP thumbnail:
+
+```php
+Thumbnail::set('gallery')->src('photos/example.avif', 'public')->urlSafe();
+```
+
+The output format comes from the preset's `format` setting, or `default_format` when omitted;
+it is independent of the source format.
+Set the output format in `config/thumbnails.php`:
+
+```php
+'presets' => [
+    'gallery' => [
+        'format' => 'avif',
+        'smartcrop' => '300x200',
+        'destination' => ['disk' => 'public', 'path' => 'thumbnails/gallery/'],
+        'quality' => 85,
+    ],
+],
+```
+Check the installed driver with `ThumbnailGenerator::createImageManager()->driver()->supports('avif')`
+(`ThumbnailGenerator` is in the `Askancy\LaravelSmartThumbnails\Support` namespace).
+See [Intervention Image's supported formats](https://image.intervention.io/v3/getting-started/formats).
+If you already published the configuration, add `'avif'` to `allowed_extensions` to accept AVIF sources.
+An explicitly configured allowlist is always respected. If encoding is unavailable, strict mode reports an
+exception and silent mode uses the configured fallback. No different format is written under an `.avif` extension.
 
 ---
 
@@ -148,7 +311,87 @@ php artisan thumbnail:purge
 
 # Purge thumbnails only for a specific preset
 php artisan thumbnail:purge products --confirm
+
+# Pre-generate a preset from images/ on the public disk
+php artisan thumbnails:pregenerate products --disk=public --path=images/
+
+# Dispatch generation to the configured Laravel queue
+php artisan thumbnails:pregenerate products --disk=public --path=images/ --async
+
+# Regenerate even when a thumbnail already exists (also works with --async)
+php artisan thumbnails:pregenerate products --disk=public --path=images/ --force
+
+# Process the default thumbnail queue
+php artisan queue:work --queue=thumbnails
 ```
+
+For one source, use `Thumbnail::set('products')->src($path)->regenerate()` or
+`->regenerate('thumb')`. Normal `url()` calls reuse the current file; regeneration overwrites it.
+
+### Concurrent Generation and Publication
+
+Web requests and queue jobs acquire the same atomic lock for each destination disk/path and recheck
+whether the thumbnail exists after acquiring it. Normal simultaneous requests render once; explicit
+forced regenerations run in sequence. Locks are released even when rendering fails.
+
+Images are written to unique temporary files and published with a storage `move` only after the bytes
+are complete. The writer verifies that it still owns the lock before publication. A failed temporary
+write or move leaves an existing thumbnail intact. Local disks use completed-file rename semantics;
+remote destinations rely on the adapter's move/copy publication semantics.
+
+```php
+'lock_store' => 'redis',          // A configured Laravel cache store
+'generation_lock_seconds' => 300,
+'generation_lock_wait' => 10,
+```
+
+The default `lock_store => null` follows the application's cache store. All web and queue instances
+writing to the same destination must use the same lock store and cache prefix. Use file cache for a
+single host or a shared atomic-lock store for multiple hosts. An in-memory `array` cache cannot coordinate
+independent processes. Set the lock lifetime above the longest render/upload duration. On lock timeout,
+strict mode throws, silent mode falls back, and queued jobs can retry using their normal retry policy.
+
+### Prune Obsolete Versions
+
+```bash
+# Preview obsolete versions at least 30 days old
+php artisan thumbnails:prune --dry-run
+
+# Delete eligible obsolete versions for one preset
+php artisan thumbnails:prune products --days=30
+
+# Use a longer retention period
+php artisan thumbnails:prune --days=90
+```
+
+The retention default is `obsolete_retention_days => 30`; `--days=0` allows immediate pruning of
+obsolete versions. Age alone never makes a current version eligible. The command checks the source
+content and current preset/variant settings under the same lock used by generation, then verifies
+that the output still matches its recorded hash before deleting it. Old versions of removed sources,
+presets, and variants are eligible after the retention period as well.
+
+The report distinguishes current, recent, modified, missing, obsolete, deleted, busy, and error cases.
+Busy outputs are skipped for a later run. Source read/validation errors preserve the affected output;
+outputs replaced outside the package are also preserved. Dry runs delete neither images nor records.
+Current source validation settings apply during cleanup, so keep source disks accessible.
+
+Ownership records are stored privately, separately from the generated public images:
+
+```php
+'manifest_disk' => 'local',
+'manifest_path' => 'smart-thumbnails/manifests',
+'obsolete_retention_days' => 30,
+```
+
+Use a private persistent disk; multiple application instances should share this index for complete
+cleanup coverage. Only successfully indexed managed outputs are considered. **Files generated before
+ownership tracking was introduced, untracked files, and custom job destinations are preserved.** Use
+`thumbnail:purge` when you intentionally want to remove legacy thumbnails too. Cleanup does not remove
+source images or unrelated application cache data. Old URLs may stop working after their versions are
+pruned, so choose a retention period appropriate for cached pages or saved links.
+
+To run cleanup periodically, register `Schedule::command('thumbnails:prune')->weekly()` in your Laravel
+application's scheduler. The command does not schedule itself.
 
 You can also analyze your usage via Tinker:
 ```php
@@ -159,26 +402,44 @@ php artisan tinker
 
 ---
 
-## 🔄 Upgrade Guide (v2.0)
+<a id="upgrade-guide"></a>
 
-If you are upgrading from an older version, the transition is **100% backwards compatible**. No code changes are required in your views or controllers.
+## 🔄 Upgrade Guide (4.0.0)
 
-**Enhancements included automatically:**
-- Upgrade to Intervention Image 3.x.
-- Better memory management and Cache Tagging (Memcached/Redis recommended).
-- Advanced Smart Cropping algorithm optimizations.
+When upgrading from an older version, check the PHP, Laravel, and Intervention Image requirements above
+and review your published configuration, including `allowed_extensions` for AVIF sources.
 
-Make sure to clear your caches after upgrading:
+For applications upgrading from 3.x:
+
+1. Update the Composer constraint to `^4.0` and install the release:
+   ```bash
+   composer require askancy/laravel-smart-thumbnails:^4.0
+   ```
+2. Merge the new settings into your published configuration, especially `allow_upscale`, `lock_store`,
+   `generation_lock_seconds`, `generation_lock_wait`, `manifest_disk`, `manifest_path`, and
+   `obsolete_retention_days`. Use a private writable manifest disk and an atomic lock store shared by
+   all web and queue instances writing to the same destination. Avoid process-local array cache in production.
+3. Review the enforced 10 MiB source byte limit and MIME/extension matching. AVIF sources require
+   `avif` in the allowlist and a driver with the AVIF codec enabled.
+4. New requests use identity-based thumbnail paths. Stored old URLs are not rewritten. Update stored URLs
+   through the package API as needed, and retain old files until existing links no longer need them.
+   `thumbnail:purge` can remove legacy thumbnails; `thumbnails:prune` only removes indexed obsolete versions.
+5. If you extend `SmartCropService` or override `ThumbnailService::generateThumbnailSafe()`, review the
+   changed internals and the generation lock argument. The fluent facade API remains available.
+
+Clear compiled configuration and restart long-running queue workers after deployment:
 ```bash
-php artisan cache:clear
 php artisan config:clear
+php artisan queue:restart
 ```
+
+The version is supplied by the Git release tag; `composer.json` intentionally has no hardcoded `version` field.
 
 ---
 
 ## 🤝 Contributing
 
-We welcome pull requests and issues! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and development process.
+We welcome pull requests and issues!
 
 Looking to help with our AI/Smart Crop Roadmap? Check out [SMART_CROP_ROADMAP.md](SMART_CROP_ROADMAP.md).
 
@@ -192,7 +453,8 @@ The MIT License (MIT). Please see [LICENSE.md](LICENSE) for more information.
 
 - Created and maintained by [Askancy](https://github.com/askancy)
 - Image manipulation powered by [Intervention Image](https://github.com/Intervention/image)
-- Smart crop algorithm inspired by [dont-crop](https://github.com/jwagner/dont-crop/)
+- Content-aware cropping inspired by [smartcrop.js](https://github.com/jwagner/smartcrop.js)
+- Gradient backgrounds and palette extraction inspired by [dont-crop](https://github.com/jwagner/dont-crop/)
 
 ---
 

@@ -3,14 +3,21 @@
 namespace Askancy\LaravelSmartThumbnails\Jobs;
 
 use Askancy\LaravelSmartThumbnails\Services\SmartCropService;
+use Askancy\LaravelSmartThumbnails\Support\CacheHelper;
+use Askancy\LaravelSmartThumbnails\Support\GenerationLock;
+use Askancy\LaravelSmartThumbnails\Support\PixelBudget;
+use Askancy\LaravelSmartThumbnails\Support\SourceImage;
 use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailIdentity;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailManifest;
+use Askancy\LaravelSmartThumbnails\Support\ThumbnailPublisher;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use Askancy\LaravelSmartThumbnails\Support\PixelBudget;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
 
@@ -27,6 +34,8 @@ class GenerateThumbnailJob implements ShouldQueue
     protected $config;
     protected $thumbnailPath;
     protected $variant;
+    protected bool $force = false;
+    protected bool $managedPath = false;
 
     public $timeout = 120;
     public $tries = 3;
@@ -38,14 +47,18 @@ class GenerateThumbnailJob implements ShouldQueue
         string $configKey,
         array $config,
         string $thumbnailPath,
-        string $variant = null
+        ?string $variant = null,
+        bool $force = false,
+        bool $managedPath = false
     ) {
         $this->sourcePath = $sourcePath;
         $this->sourceDisk = $sourceDisk;
         $this->configKey = $configKey;
-        $this->config = $config;
+        $this->config = ThumbnailIdentity::settings($config);
         $this->thumbnailPath = $thumbnailPath;
         $this->variant = $variant;
+        $this->force = $force;
+        $this->managedPath = $managedPath;
     }
 
     /**
@@ -59,125 +72,108 @@ class GenerateThumbnailJob implements ShouldQueue
     public function handle(SmartCropService $smartCropService)
     {
         try {
-            // Check if thumbnail already exists (race condition protection)
-            if (Storage::disk($this->config['destination']['disk'])->exists($this->thumbnailPath)) {
-                Log::info('Thumbnail already exists, skipping generation', [
-                    'path' => $this->thumbnailPath,
-                ]);
-                return;
+            $source = SourceImage::read($this->sourcePath, $this->sourceDisk);
+            if ($this->managedPath) {
+                $this->thumbnailPath = ThumbnailIdentity::path(
+                    $this->sourcePath,
+                    $this->sourceDisk,
+                    $this->config,
+                    $this->variant,
+                    $source['hash']
+                );
             }
-
-            // Initialize ImageManager with Intervention Image 3.x
-            $imageManager = ThumbnailGenerator::createImageManager();
-
-            // Configure memory limit
-            $memoryLimit = config('thumbnails.memory_limit');
-            if ($memoryLimit) {
-                ini_set('memory_limit', $memoryLimit);
-            }
-
-            $startTime = microtime(true);
-
-            // Validate source file existence
-            if (!Storage::disk($this->sourceDisk)->exists($this->sourcePath)) {
-                throw new \Exception("Source image not found: {$this->sourcePath}");
-            }
-
-            $imageContent = Storage::disk($this->sourceDisk)->get($this->sourcePath);
-
-            if (empty($imageContent)) {
-                throw new \Exception("Source image is empty: {$this->sourcePath}");
-            }
-
-            // Same guard as ThumbnailService: the decoder allocates
-            // width x height x 4 bytes and a few MB of PNG can exhaust the
-            // worker's memory. A worker killed this way leaves nothing in
-            // failed_jobs, so it is cheaper to refuse the image and log why.
-            $budget = PixelBudget::configuredBudget();
-
-            if (PixelBudget::exceeds($imageContent, $budget)) {
-                $megapixels = round((float) PixelBudget::megapixels($imageContent), 1);
-
-                Log::warning('Source image refused: too many pixels for a thumbnail', [
-                    'source' => $this->sourcePath,
-                    'disk' => $this->sourceDisk,
-                    'megapixels' => $megapixels,
-                    'budget_megapixels' => $budget,
-                ]);
-
-                throw new \Exception(sprintf(
-                    'Source image too large to decode: %s megapixels, budget is %s (%s)',
-                    $megapixels,
-                    $budget,
-                    $this->sourcePath
-                ));
-            }
-
-            // Read image using Intervention Image 3.x
-            $image = $imageManager->read($imageContent);
-            $originalWidth = $image->width();
-            $originalHeight = $image->height();
-
-            [$width, $height] = explode('x', $this->config['smartcrop']);
-            $width = (int) $width;
-            $height = (int) $height;
-
-            if ($width <= 0 || $height <= 0) {
-                throw new \Exception("Invalid dimensions: {$this->config['smartcrop']}");
-            }
-
-            // Apply smart crop if enabled
-            $smartCropEnabled = $this->config['smart_crop_enabled'] ?? config('thumbnails.enable_smart_crop', true);
-
-            if ($smartCropEnabled) {
-                // Optimize smart crop for large images by analyzing at smaller size
-                $maxAnalysisSize = config('thumbnails.max_smart_crop_analysis_size', 800);
-                if ($originalWidth > $maxAnalysisSize || $originalHeight > $maxAnalysisSize) {
-                    // For large images, use basic crop to reduce memory usage
-                    $image = ThumbnailGenerator::applyBasicCrop($image, $width, $height);
-                } else {
-                    try {
-                        $image = $smartCropService->smartCrop($image, $width, $height);
-                    } catch (\Exception $e) {
-                        // Fallback to basic crop if smart crop fails
-                        Log::warning('Smart crop failed, using basic crop', [
-                            'error' => $e->getMessage(),
-                            'source' => $this->sourcePath,
-                        ]);
-                        $image = ThumbnailGenerator::applyBasicCrop($image, $width, $height);
-                    }
+            GenerationLock::run($this->config['destination']['disk'], $this->thumbnailPath, function (Lock $lock) use ($source, $smartCropService) {
+                if (!$this->force && config('thumbnails.cache_thumbnails', true)
+                    && Storage::disk($this->config['destination']['disk'])->exists($this->thumbnailPath)) {
+                    return;
                 }
-            } else {
-                $image = ThumbnailGenerator::applyBasicCrop($image, $width, $height);
-            }
+                // Initialize ImageManager with Intervention Image 3.x
+                $imageManager = ThumbnailGenerator::createImageManager();
 
-            $format = $this->config['format'] ?? config('thumbnails.default_format', 'jpg');
-            $quality = $this->config['quality'] ?? config('thumbnails.default_quality', 85);
+                // Configure memory limit
+                $memoryLimit = config('thumbnails.memory_limit');
+                if ($memoryLimit) {
+                    ini_set('memory_limit', $memoryLimit);
+                }
 
-            $processedImage = ThumbnailGenerator::convertFormat($image, $format, $quality);
+                $startTime = microtime(true);
 
-            // Ensure destination directory exists
-            ThumbnailGenerator::ensureDestinationDirectory($this->config['destination']['disk'], dirname($this->thumbnailPath));
+                // Validate source file existence
+                if (!Storage::disk($this->sourceDisk)->exists($this->sourcePath)) {
+                    throw new \Exception("Source image not found: {$this->sourcePath}");
+                }
 
-            // Save thumbnail
-            $disk = Storage::disk($this->config['destination']['disk']);
-            $disk->put($this->thumbnailPath, $processedImage);
+                $imageContent = $source['content'];
 
-            // Set public visibility if supported
-            ThumbnailGenerator::setPublicVisibility($this->config['destination']['disk'], $this->thumbnailPath);
+                if (empty($imageContent)) {
+                    throw new \Exception("Source image is empty: {$this->sourcePath}");
+                }
 
-            $executionTime = microtime(true) - $startTime;
+                // Same guard as ThumbnailService: the decoder allocates
+                // width x height x 4 bytes and a few MB of PNG can exhaust the
+                // worker's memory. A worker killed this way leaves nothing in
+                // failed_jobs, so it is cheaper to refuse the image and log why.
+                $budget = PixelBudget::configuredBudget();
 
-            Log::info('Thumbnail generated asynchronously', [
-                'source' => $this->sourcePath,
-                'destination' => $this->thumbnailPath,
-                'config' => $this->configKey,
-                'variant' => $this->variant,
-                'execution_time' => round($executionTime * 1000, 2) . 'ms',
-            ]);
+                if (PixelBudget::exceeds($imageContent, $budget)) {
+                    $megapixels = round((float) PixelBudget::megapixels($imageContent), 1);
 
-            // Cleanup memory (Intervention Image 3.x manages this automatically)
-            unset($image);
+                    Log::warning('Source image refused: too many pixels for a thumbnail', [
+                        'source' => $this->sourcePath,
+                        'disk' => $this->sourceDisk,
+                        'megapixels' => $megapixels,
+                        'budget_megapixels' => $budget,
+                    ]);
+
+                    throw new \Exception(sprintf(
+                        'Source image too large to decode: %s megapixels, budget is %s (%s)',
+                        $megapixels,
+                        $budget,
+                        $this->sourcePath
+                    ));
+                }
+
+                // Read image using Intervention Image 3.x
+                $image = $imageManager->read($imageContent);
+
+                [$width, $height] = explode('x', $this->config['smartcrop']);
+                $width = (int) $width;
+                $height = (int) $height;
+
+                if ($width <= 0 || $height <= 0) {
+                    throw new \Exception("Invalid dimensions: {$this->config['smartcrop']}");
+                }
+
+                $image = ThumbnailGenerator::transform($image, $width, $height, $this->config, $smartCropService);
+
+                $format = $this->config['format'] ?? config('thumbnails.default_format', 'jpg');
+                $quality = $this->config['quality'] ?? config('thumbnails.default_quality', 85);
+
+                $processedImage = ThumbnailGenerator::convertFormat($image, $format, $quality, $this->config);
+
+                $record = $this->managedPath ? ThumbnailManifest::record(
+                    $this->sourcePath,
+                    $this->sourceDisk,
+                    $this->configKey,
+                    $this->variant,
+                    $this->config,
+                    $source['hash']
+                ) : null;
+                ThumbnailPublisher::publish($this->config['destination']['disk'], $this->thumbnailPath, $processedImage, $lock, $record);
+                CacheHelper::flush([$this->configKey]);
+                $executionTime = microtime(true) - $startTime;
+
+                Log::info('Thumbnail generated asynchronously', [
+                    'source' => $this->sourcePath,
+                    'destination' => $this->thumbnailPath,
+                    'config' => $this->configKey,
+                    'variant' => $this->variant,
+                    'execution_time' => round($executionTime * 1000, 2) . 'ms',
+                ]);
+
+                // Cleanup memory (Intervention Image 3.x manages this automatically)
+                unset($image);
+            });
         } catch (\Exception $e) {
             Log::error('Async thumbnail generation failed', [
                 'source' => $this->sourcePath,

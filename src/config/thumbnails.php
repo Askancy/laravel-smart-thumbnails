@@ -9,6 +9,16 @@ return [
     'default_quality' => 85,
     'default_format' => 'webp',
     'enable_smart_crop' => true,
+    'allow_upscale' => true, // false: never enlarge source pixels; can be overridden per preset/variant
+    'lock_store' => null, // Laravel cache store shared by every web/queue instance writing to the same destination
+    'generation_lock_seconds' => 300, // Must exceed the longest render/upload time
+    'generation_lock_wait' => 10,
+    'manifest_disk' => 'local', // Private, persistent disk; share between instances for a complete pruning index
+    'manifest_path' => 'smart-thumbnails/manifests',
+    'obsolete_retention_days' => 30,
+    // null preserves smart_crop_enabled; explicit modes take precedence, including in variants.
+    'crop_mode' => null, // 'smart', 'center', or 'dont_crop'
+    'dont_crop_background' => 'gradient', // 'gradient', 'dominant', or an Intervention color (e.g. '#ffffff')
 
     /*
      * Pixel budget for a source image, in megapixels.

@@ -201,26 +201,14 @@ class CacheHelperTest extends TestCase
         $this->assertEquals($value, $retrieved);
     }
 
-    public function test_it_prefixes_keys_for_non_tagging_drivers()
+    public function test_file_cache_keeps_identical_keys_in_distinct_tag_namespaces(): void
     {
-        // With non-tagging drivers, keys should be prefixed to avoid collisions
         config(['cache.default' => 'file']);
-
-        $tags = ['thumbnails', 'test'];
-        $key = 'prefix-test';
-        $value = 'prefixed-value';
-        $ttl = 60;
-
-        CacheHelper::put($tags, $key, $value, $ttl);
-
-        // The actual key should be prefixed with first tag
-        // This is implementation detail but important for fallback behavior
-        $prefixedKey = 'thumbnails:' . $key;
-        $directValue = Cache::get($prefixedKey);
-
-        $this->assertEquals($value, $directValue);
+        CacheHelper::put(['thumbnails', 'one'], 'same', 'first', 60);
+        CacheHelper::put(['thumbnails', 'two'], 'same', 'second', 60);
+        $this->assertSame('first', CacheHelper::get(['thumbnails', 'one'], 'same'));
+        $this->assertSame('second', CacheHelper::get(['thumbnails', 'two'], 'same'));
     }
-
     public function test_remember_method_does_not_call_callback_if_cached()
     {
         $tags = ['thumbnails', 'test'];
@@ -281,24 +269,17 @@ class CacheHelperTest extends TestCase
         $this->assertFalse(CacheHelper::has($tags, $key));
     }
 
-    public function test_flush_logs_warning_for_non_tagging_drivers()
+    public function test_file_cache_invalidates_one_tag_without_flushing_other_presets_or_app_data(): void
     {
         config(['cache.default' => 'file']);
-
-        // Capture log output
-        $logged = false;
-        \Illuminate\Support\Facades\Log::shouldReceive('warning')
-            ->once()
-            ->with(
-                'Cache flush requested but current driver does not support tagging',
-                \Mockery::type('array')
-            )
-            ->andReturnUsing(function () use (&$logged) {
-                $logged = true;
-            });
-
-        CacheHelper::flush(['thumbnails']);
-
-        $this->assertTrue($logged, 'Warning should be logged for non-tagging drivers');
+        Cache::put('application-data', 'keep', 60);
+        CacheHelper::put(['thumbnails', 'one'], 'first', 'a', 60);
+        CacheHelper::put(['thumbnails', 'two'], 'second', 'b', 60);
+        CacheHelper::flush(['one']);
+        $this->assertNull(CacheHelper::get(['thumbnails', 'one'], 'first'));
+        $this->assertSame('b', CacheHelper::get(['thumbnails', 'two'], 'second'));
+        $this->assertSame('keep', Cache::get('application-data'));
+        CacheHelper::put(['thumbnails', 'one'], 'first', 'new', 60);
+        $this->assertSame('new', CacheHelper::get(['thumbnails', 'one'], 'first'));
     }
 }

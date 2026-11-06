@@ -2,25 +2,31 @@
 
 ## Current Implementation
 
-The current smart crop implementation uses a **Rule of Thirds** algorithm that positions the crop area at strategic points in the image:
+The current implementation scores edges and color contrast on an image sample bounded to 96 × 96 pixels,
+then selects a crop position along the axis being trimmed. Uniform images use a center preference.
+It does not detect faces or objects. `dont_crop` preserves the whole source with a fitted RGB gradient,
+dominant color, or explicit background. See the README for configuration and public APIs.
 
 ### Features
-- ✅ Rule of thirds positioning for horizontal crops
-- ✅ Upper-third preference for vertical crops (better for portraits and landscapes)
-- ✅ Energy map with weighted interest points
-- ✅ Fallback to center positioning
+- ✅ Edge and color-contrast analysis for horizontal and vertical crops
+- ✅ Content-based positioning verified with subjects at all four edges
+- ✅ Center preference on tied scores and center fallback on analysis errors
+- ✅ Dont-crop padding, gradient fitting, and palette extraction
 - ✅ Compatible with Intervention Image 3.x
 
 ### Algorithm Flow
 ```
 1. Calculate aspect ratios (original vs target)
 2. Determine crop direction (horizontal or vertical)
-3. Apply rule of thirds positioning
+3. Score sampled visual detail to choose the crop position
 4. Crop to calculated coordinates
 5. Resize to target dimensions
 ```
 
 ## Future Enhancements
+
+The examples and proposed options below are design notes, not currently supported configuration.
+Basic edge analysis is implemented; Sobel filters, entropy, face detection, and saliency are possible extensions.
 
 ### Phase 1: Edge Detection (Priority: High)
 

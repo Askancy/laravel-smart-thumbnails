@@ -9,6 +9,43 @@ use Illuminate\Support\Facades\Storage;
 
 class ThumbnailGeneratorTest extends TestCase
 {
+    public function test_png_compression_changes_size_without_changing_pixels(): void
+    {
+        $image = ThumbnailGenerator::createImageManager()->create(100, 100)->fill('#12ab34');
+        $uncompressed = ThumbnailGenerator::convertFormat($image, 'png', 85, ['png_compression' => 0]);
+        $compressed = ThumbnailGenerator::convertFormat($image, 'png', 85, ['png_compression' => 9]);
+        $this->assertLessThan(strlen($uncompressed), strlen($compressed));
+        $this->assertSame('12ab34', ThumbnailGenerator::createImageManager()->read($compressed)->pickColor(50, 50)->toHex());
+    }
+
+    public function test_webp_lossless_preserves_exact_rgb_values(): void
+    {
+        $manager = ThumbnailGenerator::createImageManager();
+        if (!$manager->driver()->supports('webp')) {
+            $this->markTestSkipped('WebP codec unavailable.');
+        }
+        $image = $manager->create(32, 16);
+        $bitmap = $image->core()->native();
+        for ($y = 0; $y < 16; $y++) {
+            for ($x = 0; $x < 32; $x++) {
+                imagesetpixel($bitmap, $x, $y, imagecolorallocate($bitmap, $x * 7, $y * 13, ($x + $y) * 3));
+            }
+        }
+        $decoded = $manager->read(ThumbnailGenerator::convertFormat($image, 'webp', 75, ['webp_lossless' => true]));
+        foreach ([[1, 1], [3, 7], [13, 11], [31, 15]] as [$x, $y]) {
+            $this->assertSame($image->pickColor($x, $y)->toHex(), $decoded->pickColor($x, $y)->toHex());
+        }
+    }
+
+    public function test_progressive_jpeg_setting_controls_the_encoding(): void
+    {
+        $image = ThumbnailGenerator::createImageManager()->create(30, 30)->fill('#123456');
+        $progressive = ThumbnailGenerator::convertFormat($image, 'jpg', 85, ['enable_progressive_jpeg' => true]);
+        $baseline = ThumbnailGenerator::convertFormat($image, 'jpg', 85, ['enable_progressive_jpeg' => false]);
+        $this->assertStringContainsString("\xff\xc2", $progressive);
+        $this->assertStringContainsString("\xff\xc0", $baseline);
+    }
+
     protected function setUp(): void
     {
         parent::setUp();

@@ -7,6 +7,12 @@ use Askancy\LaravelSmartThumbnails\Providers\ThumbnailServiceProvider;
 
 abstract class TestCase extends BaseTestCase
 {
+    protected function thumbnailPath(string $source, ?string $variant = null, string $preset = 'test', string $disk = 'local'): string
+    {
+        return (new \Askancy\LaravelSmartThumbnails\Services\ThumbnailService(new \Askancy\LaravelSmartThumbnails\Services\SmartCropService()))
+            ->set($preset)->src($source, $disk)->path($variant);
+    }
+
     protected function getPackageProviders($app)
     {
         return [

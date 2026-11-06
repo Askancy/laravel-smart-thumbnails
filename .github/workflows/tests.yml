@@ -99,7 +99,7 @@ jobs:
           "
 
       - name: Execute tests
-        run: vendor/bin/phpunit --verbose || true
+        run: vendor/bin/phpunit --no-coverage
 
   code-quality:
     runs-on: ubuntu-latest
@@ -142,7 +142,10 @@ jobs:
           "
 
       - name: Run basic tests
-        run: vendor/bin/phpunit --no-coverage || echo "Tests completed with issues"
+        run: vendor/bin/phpunit --no-coverage
+
+      - name: Run static analysis
+        run: composer analyse
 
   security:
     runs-on: ubuntu-latest
@@ -164,7 +167,7 @@ jobs:
       - name: Run security check
         run: |
           if [ -f composer.lock ]; then
-            composer audit --no-dev || echo "Security audit completed with warnings"
+            composer audit --no-dev
           else
             echo "No composer.lock file found, skipping security check"
           fi
@@ -199,18 +202,20 @@ jobs:
               echo '✅ ThumbnailService class found' . PHP_EOL;
             } else {
               echo '❌ ThumbnailService class not found' . PHP_EOL;
+              exit(1);
             }
             
             if (class_exists('Askancy\LaravelSmartThumbnails\Services\SmartCropService')) {
               echo '✅ SmartCropService class found' . PHP_EOL;
             } else {
               echo '❌ SmartCropService class not found' . PHP_EOL;
+              exit(1);
             }
             
             echo '✅ Basic functionality test completed!' . PHP_EOL;
             
           } catch (Exception \$e) {
             echo '❌ Error during basic test: ' . \$e->getMessage() . PHP_EOL;
-            echo 'This is expected if classes are not yet implemented.' . PHP_EOL;
+            exit(1);
           }
           "
