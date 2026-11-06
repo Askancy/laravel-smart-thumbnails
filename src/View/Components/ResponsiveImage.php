@@ -11,9 +11,10 @@ class ResponsiveImage extends Component
         public string $src,
         public string $preset = 'gallery',
         public string $disk = 'public',
-        public array $variants = [],
+        public ?array $variants = null,
         public string $sizes = '100vw',
-        public string $alt = ''
+        public string $alt = '',
+        public ?string $variant = null
     ) {
     }
 
@@ -25,10 +26,13 @@ class ResponsiveImage extends Component
         $main = null;
         $candidates = [];
         try {
-            $main = $service->imageData();
+            $main = $service->imageData($this->variant);
             $candidates[$main['width']] = $main['url'];
-            $variants = $this->variants ?: array_keys($service->getVariants());
+            $variants = $this->variants ?? array_keys($service->getVariants());
             foreach ($variants as $variant) {
+                if ($variant === $this->variant) {
+                    continue;
+                }
                 try {
                     $image = $service->imageData($variant);
                     // Width descriptors must describe alternate resolutions of the same aspect ratio.
@@ -40,7 +44,7 @@ class ResponsiveImage extends Component
                 }
             }
         } catch (\Exception $e) {
-            $main = ['url' => $service->urlSafe(), 'width' => null, 'height' => null];
+            $main = ['url' => $service->urlSafe($this->variant), 'width' => null, 'height' => null];
         }
         ksort($candidates, SORT_NUMERIC);
         $srcset = [];

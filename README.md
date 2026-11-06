@@ -1,6 +1,6 @@
 # Laravel Smart Thumbnails
 
-Version **4.0.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 3.x.
+Version **4.1.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 3.x.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/3c71d5d7-19ca-4703-9612-d3eeaed23183" alt="Laravel Smart Thumbnails Demo" width="600"/>
@@ -107,7 +107,26 @@ and the actual output dimensions:
 />
 ```
 
-The main preset supplies `src`. Omit `variants` to consider all configured variants. Candidates are
+By default, the main preset supplies `src`. Set `variant="detail_hero"` to use a configured variant as
+the main image instead. That variant also supplies the actual intrinsic dimensions, the reference
+aspect ratio for responsive candidates, and the fallback request.
+
+```blade
+<x-smart-thumbnail
+    :src="$article->image"
+    preset="news"
+    variant="detail_hero"
+    :variants="['detail_hero_sm']"
+    sizes="(min-width: 1024px) 900px, 100vw"
+    :alt="$article->title"
+/>
+```
+
+Omit `variants` or pass `:variants="null"` to discover all configured variants. Pass `:variants="[]"`
+to generate only the selected main image, without requesting alternate variants. A main-only `srcset`
+may still contain its single actual-width descriptor. Explicitly empty lists no longer trigger automatic
+discovery. If the selected main variant also appears in the candidates list, it is not requested twice.
+Candidates are
 sorted by actual width, duplicate widths are removed, and variants with a different aspect ratio are
 excluded from `srcset`. Use `<picture>` for art direction with different ratios. The component uses
 `loading="lazy"` and `decoding="async"` by default; normal HTML attributes can override these defaults.

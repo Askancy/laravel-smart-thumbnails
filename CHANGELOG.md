@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-11-06
+
+### Added
+- Optional `variant` on `<x-smart-thumbnail>` to select the main crop, dimensions, candidate aspect ratio, and fallback request.
+- Regression coverage for selected hero crops, disabled upscaling, explicit main-only rendering, fallback behavior, and shared-service state isolation.
+
+### Fixed
+- An explicit `:variants="[]"` now requests only the main image; omitted or null candidates retain automatic discovery.
+- The selected main variant is not requested again when it also appears in the candidates list.
+- Resolves [#1](https://github.com/Askancy/laravel-smart-thumbnails/issues/1).
+
 ## [4.0.0] - 2026-11-06
 
 ### Breaking Changes
