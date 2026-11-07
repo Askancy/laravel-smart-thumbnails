@@ -1,6 +1,6 @@
 # Laravel Smart Thumbnails
 
-Version **4.1.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 3.x.
+Version **4.2.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 3.x.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/3c71d5d7-19ca-4703-9612-d3eeaed23183" alt="Laravel Smart Thumbnails Demo" width="600"/>
@@ -247,10 +247,56 @@ source bytes, rendering settings, and variant. Identical basenames in different 
 remain distinct. Replacing the source or changing quality, crop mode, background, or other rendering
 settings produces a new URL, including replacements with identical size and modification time.
 
-Source bytes are read and hashed on each lookup to detect replacements reliably; cache hits avoid
-decoding and rendering, but still require source I/O, including on remote disks. Existing output files
-are checked before a cached URL is returned. Failures are not cached as successful thumbnail URLs.
-Old content versions remain on disk until purged.
+`url()` and `urlSafe()` read and hash source bytes on every call to detect replacements reliably;
+their URL cache avoids decoding and rendering, but still requires source I/O, including on remote disks.
+They check existing output files before returning a cached URL. Failures are not cached as successful
+thumbnail URLs. Old content versions remain on disk until purged.
+
+### Cached Image Metadata for Responsive Rendering
+
+`imageData()` and the native Blade component cache successful **URL + actual output width/height**
+for 300 seconds by default. A warm metadata hit does not read the source, download the derivative,
+or check their existence, including across cloned service instances. This avoids repeating remote
+image reads when rendering responsive images. The dimensions remain those of the generated file,
+including when `allow_upscale` is disabled.
+Applications using an `imageData()` caching override can remove that override after upgrading.
+
+```php
+'cache_image_data' => true,
+'image_data_cache_ttl' => 300, // Non-negative integer seconds; 0 disables metadata caching
+```
+
+This cache is independent of `cache_urls`. Set `cache_image_data => false` or
+`image_data_cache_ttl => 0` to verify sources and measure outputs on every `imageData()` call.
+Disabling `cache_thumbnails` also bypasses metadata caching. Cache hits do not extend the expiration.
+The cache identity includes the preset, source disk/full path, variant, effective render and validation
+settings, storage configuration (including scoped parent disks and resolved adapter configuration),
+application URL, and TTL. Changing these settings does not reuse an incompatible entry. Runtime
+changes to Laravel disk configuration must also be applied to its resolved adapters as usual.
+
+**Freshness:** an in-place source replacement or external deletion of a derivative may remain invisible
+to `imageData()` and Blade until the TTL expires. For immediate verification and an updated metadata
+entry, call:
+
+```php
+$data = Thumbnail::set('products')->src($path, 's3')->imageDataFresh('card');
+```
+
+To invalidate metadata across service instances for a whole preset after updating a source:
+
+```php
+Thumbnail::set('products')->clearCache();
+```
+
+Metadata uses `CacheHelper`'s `['thumbnails', $preset]` invalidation namespaces. Preset/global purges,
+explicit cache clearing, forced regeneration, and completed queue generation invalidate the relevant
+metadata; invalidations also prevent an earlier in-flight load from repopulating the new namespace.
+Only successful image data is cached. Source failures, invalid output dimensions, and fallback URLs
+are retried on later calls. `imageDataFresh()` propagates failures while preserving the caller's
+strict/silent mode; the Blade component continues to handle failed main images with its normal fallback.
+For callers requiring immediate verification without metadata, `url()`/`urlSafe()` retain their existing
+behavior. Custom URL builders whose state is outside disk configuration should explicitly clear the
+preset cache when that state changes.
 
 `max_file_size` is enforced before reading the full source and again against the bytes read. It defaults
 to 10 MiB; set it to `0` to disable the byte limit. With `validate_image_content => true`, the package checks

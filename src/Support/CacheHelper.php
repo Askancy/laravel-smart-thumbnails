@@ -23,6 +23,16 @@ class CacheHelper
         return 'smart_thumbnails:' . hash('sha256', serialize([$versions, $key]));
     }
 
+    /** Capture an invalidation generation before starting work that may outlive a flush. */
+    public static function namespaceFingerprint(array $tags): string
+    {
+        $versions = [];
+        foreach ($tags as $tag) {
+            $versions[$tag] = Cache::get('smart_thumbnails:tag:' . hash('sha256', $tag), '0');
+        }
+        return hash('sha256', serialize($versions));
+    }
+
     public static function remember(array $tags, string $key, int $ttl, callable $callback)
     {
         return self::supportsTagging() ? Cache::tags($tags)->remember($key, $ttl, $callback)
@@ -54,12 +64,11 @@ class CacheHelper
 
     public static function flush(array $tags): void
     {
-        if (self::supportsTagging()) {
-            Cache::tags($tags)->flush();
-            return;
-        }
         foreach ($tags as $tag) {
             Cache::forever('smart_thumbnails:tag:' . hash('sha256', $tag), bin2hex(random_bytes(16)));
+        }
+        if (self::supportsTagging()) {
+            Cache::tags($tags)->flush();
         }
     }
 

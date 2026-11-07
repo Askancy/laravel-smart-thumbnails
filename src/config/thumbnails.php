@@ -43,6 +43,8 @@ return [
     */
     'cache_urls' => true,
     'cache_ttl' => 3600,
+    'cache_image_data' => true, // Cache successful URL + actual dimensions; url()/urlSafe() still verify immediately
+    'image_data_cache_ttl' => 300, // Positive seconds; 0 disables metadata caching
 
     /*
     |--------------------------------------------------------------------------

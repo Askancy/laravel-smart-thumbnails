@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-11-07
+
+### Added
+- Bounded cache of successful `imageData()` URL and actual dimensions, enabled by default for 300 seconds and shared by cloned services and Blade rendering.
+- `cache_image_data` / `image_data_cache_ttl` settings and `imageDataFresh()` for immediate verification and metadata refresh.
+- Regression tests counting source streams and derivative downloads, expiration, invalidation, storage changes, failures, and responsive rendering.
+
+### Fixed
+- Warm responsive renders no longer download the original and derivative on every metadata request.
+- Metadata cache identities distinguish source disks/full paths, variants, render/validation settings, storage URL/configuration, and scoped parent disks.
+- Preset/global invalidation, purge, and forced regeneration evict metadata without caching fallbacks; in-flight loads cannot revive an invalidated metadata entry.
+- `url()` and `urlSafe()` keep their immediate source/output verification behavior. Source replacements and external deletions are bounded by the metadata TTL unless explicitly refreshed or invalidated.
+- Resolves [#2](https://github.com/Askancy/laravel-smart-thumbnails/issues/2).
+
 ## [4.1.0] - 2026-11-06
 
 ### Added

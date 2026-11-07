@@ -475,14 +475,90 @@ class ThumbnailService
     /** Actual output dimensions, suitable for responsive width descriptors. */
     public function imageData(?string $variant = null): array
     {
-        $url = $this->url($variant);
-        $config = $this->getEffectiveConfigOptimized($variant);
-        $path = $this->generateThumbnailPath($config, $variant);
-        $size = @getimagesizefromstring(Storage::disk($config['destination']['disk'])->get($path));
-        if ($size === false) {
-            throw new \RuntimeException('Cannot determine generated thumbnail dimensions.');
+        return $this->resolveImageData($variant, false);
+    }
+
+    /** Verify source/output now, then refresh the successful metadata entry for subsequent callers. */
+    public function imageDataFresh(?string $variant = null): array
+    {
+        return $this->resolveImageData($variant, true);
+    }
+
+    protected function resolveImageData(?string $variant, bool $fresh): array
+    {
+        if (!$this->configKey || !$this->sourcePath) {
+            throw new \LogicException('A thumbnail preset and source must be selected before requesting image data.');
         }
-        return ['url' => $url, 'width' => $size[0], 'height' => $size[1]];
+        $ttl = filter_var(config('thumbnails.image_data_cache_ttl', 300), FILTER_VALIDATE_INT);
+        if ($ttl === false || $ttl < 0) {
+            throw new \InvalidArgumentException('The image data cache TTL must be a non-negative integer.');
+        }
+        $enabled = config('thumbnails.cache_image_data', true) && config('thumbnails.cache_thumbnails', true) && $ttl > 0;
+        $config = $this->getEffectiveConfigOptimized($variant);
+        $tags = [self::CACHE_TAG, $this->configKey];
+        $key = $enabled ? $this->imageDataCacheKey($config, $variant, $ttl) : null;
+        if ($key !== null) {
+            if ($fresh) {
+                CacheHelper::forget($tags, $key);
+            } elseif (($cached = CacheHelper::get($tags, $key)) !== null) {
+                return $cached;
+            }
+        }
+
+        // A fallback URL must never be paired with an old snapshot's dimensions or stored as success.
+        $originalMode = $this->silentMode;
+        $this->silentMode = false;
+        try {
+            $this->url($variant);
+            $path = $this->generateThumbnailPath($config, $variant);
+            $binary = Storage::disk($config['destination']['disk'])->get($path);
+            $size = is_string($binary) ? @getimagesizefromstring($binary) : false;
+            if ($size === false || $size[0] <= 0 || $size[1] <= 0) {
+                throw new \RuntimeException('Cannot determine generated thumbnail dimensions.');
+            }
+            // URL cache entries predate changes to a disk's URL/endpoint; compute the current public URL.
+            $result = ['url' => ThumbnailGenerator::diskUrl($config['destination']['disk'], $path),
+                'width' => $size[0], 'height' => $size[1]];
+        } finally {
+            $this->silentMode = $originalMode;
+        }
+        if ($key !== null) {
+            CacheHelper::put($tags, $key, $result, $ttl);
+        }
+        return $result;
+    }
+
+    protected function imageDataCacheKey(array $config, ?string $variant, int $ttl): string
+    {
+        unset($config['variants']);
+        $globals = [];
+        foreach (['intervention_driver', 'default_subdirectory_strategy', 'sanitize_filenames',
+            'max_file_size', 'max_megapixels', 'validate_image_content', 'allowed_extensions'] as $option) {
+            $globals[$option] = config('thumbnails.' . $option);
+        }
+        return 'image_data:v1:' . hash('sha256', serialize([
+            $this->configKey, $this->sourceDisk, $this->sourcePath, $variant, $config, $globals, $ttl,
+            CacheHelper::namespaceFingerprint([self::CACHE_TAG, $this->configKey]),
+            config('app.url'), $this->imageDataDiskFingerprint($this->sourceDisk),
+            $this->imageDataDiskFingerprint($config['destination']['disk']),
+        ]));
+    }
+
+    /** Include both configured scoped parents and the actual resolved adapter, without reading files. */
+    protected function imageDataDiskFingerprint(string $name): array
+    {
+        $adapter = Storage::disk($name);
+        $resolved = method_exists($adapter, 'getConfig') ? $adapter->getConfig() : null;
+        $disks = [];
+        while (!array_key_exists($name, $disks)) {
+            $disk = config('filesystems.disks.' . $name, []);
+            $disks[$name] = $disk;
+            if (($disk['driver'] ?? null) !== 'scoped' || !is_string($disk['disk'] ?? null)) {
+                break;
+            }
+            $name = $disk['disk'];
+        }
+        return ['class' => get_class($adapter), 'resolved' => $resolved, 'configured' => $disks];
     }
 
     protected function getFallbackUrl(): string
@@ -631,6 +707,9 @@ class ThumbnailService
                     }
                 });
                 CacheHelper::forget($tags, $cacheKey);
+            }
+            if ($force) {
+                CacheHelper::flush([$this->configKey]);
             }
             // Check the file even on cache hits: purges or external deletions cannot leave a stale URL.
             if (config('thumbnails.cache_urls', true) && ($url = CacheHelper::get($tags, $cacheKey))) {

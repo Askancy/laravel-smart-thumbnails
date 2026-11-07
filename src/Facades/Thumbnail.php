@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Facade;
  * @method static string path(?string $variant = null)
  * @method static string regenerate(?string $variant = null)
  * @method static array imageData(?string $variant = null)
+ * @method static array imageDataFresh(?string $variant = null)
+ * @method static void clearCache()
  * @method static string urlSafe(string $variant = null)
  * @method static array getAvailableDisks()
  * @method static array getScopedDisks()
