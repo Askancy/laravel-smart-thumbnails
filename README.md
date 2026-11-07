@@ -282,6 +282,9 @@ entry, call:
 $data = Thumbnail::set('products')->src($path, 's3')->imageDataFresh('card');
 ```
 
+This refresh first invalidates the preset's metadata namespace, then warms the requested entry, so a
+slower earlier request cannot overwrite the refresh. Other entries of that preset are loaded again on demand.
+
 To invalidate metadata across service instances for a whole preset after updating a source:
 
 ```php
@@ -291,6 +294,8 @@ Thumbnail::set('products')->clearCache();
 Metadata uses `CacheHelper`'s `['thumbnails', $preset]` invalidation namespaces. Preset/global purges,
 explicit cache clearing, forced regeneration, and completed queue generation invalidate the relevant
 metadata; invalidations also prevent an earlier in-flight load from repopulating the new namespace.
+Use a shared Laravel cache store when invalidations must reach multiple application instances;
+`lock_store` configures generation locks separately from this metadata cache.
 Only successful image data is cached. Source failures, invalid output dimensions, and fallback URLs
 are retried on later calls. `imageDataFresh()` propagates failures while preserving the caller's
 strict/silent mode; the Blade component continues to handle failed main images with its normal fallback.

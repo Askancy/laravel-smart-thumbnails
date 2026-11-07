@@ -496,13 +496,13 @@ class ThumbnailService
         $enabled = config('thumbnails.cache_image_data', true) && config('thumbnails.cache_thumbnails', true) && $ttl > 0;
         $config = $this->getEffectiveConfigOptimized($variant);
         $tags = [self::CACHE_TAG, $this->configKey];
+        if ($fresh) {
+            // Advance the namespace before loading so earlier readers cannot overwrite this refresh.
+            CacheHelper::flush([$this->configKey]);
+        }
         $key = $enabled ? $this->imageDataCacheKey($config, $variant, $ttl) : null;
-        if ($key !== null) {
-            if ($fresh) {
-                CacheHelper::forget($tags, $key);
-            } elseif (($cached = CacheHelper::get($tags, $key)) !== null) {
-                return $cached;
-            }
+        if ($key !== null && !$fresh && ($cached = CacheHelper::get($tags, $key)) !== null) {
+            return $cached;
         }
 
         // A fallback URL must never be paired with an old snapshot's dimensions or stored as success.

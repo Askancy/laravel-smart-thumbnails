@@ -318,4 +318,30 @@ class ImageDataCacheTest extends TestCase
         $this->assertNotSame($first['url'], $second['url']);
         $this->assertSame(2, $this->reads->source);
     }
+
+    public function test_a_fresh_read_cannot_be_overwritten_by_an_earlier_in_flight_load(): void
+    {
+        $updated = null;
+        $refresh = function () use (&$updated) {
+            $this->source->put('image.png', $this->png('#0000ff'));
+            $updated = $this->service()->imageDataFresh();
+        };
+        $service = new class ($refresh) extends ThumbnailService {
+            public function __construct(private \Closure $refresh)
+            {
+                parent::__construct(new \Askancy\LaravelSmartThumbnails\Services\SmartCropService());
+            }
+
+            public function url(?string $variant = null, bool $force = false): string
+            {
+                $url = parent::url($variant, $force);
+                ($this->refresh)();
+                return $url;
+            }
+        };
+        $earlier = $service->set('test')->src('image.png', 'source')->imageData();
+        $this->assertNotSame($earlier['url'], $updated['url']);
+        $this->assertSame($updated, $this->service()->imageData());
+        $this->assertSame(2, $this->reads->source);
+    }
 }
