@@ -316,14 +316,15 @@ class ThumbnailGenerator
     /**
      * Validate image content and extension
      */
-    public static function validateImageContent(string $path, ?string $binary = null): void
+    public static function validateImageContent(string $path, ?string $binary = null, array $options = []): void
     {
-        if (config('thumbnails.validate_image_content', true)) {
+        $compatible = ($options['allow_mismatched_extensions'] ?? config('thumbnails.allow_mismatched_extensions', false)) === true;
+        if ($compatible || config('thumbnails.validate_image_content', true)) {
             $pathInfo = pathinfo($path);
             $extension = strtolower($pathInfo['extension'] ?? '');
 
-            if (!empty($extension)) {
-                $allowedExtensions = config('thumbnails.allowed_extensions', ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif']);
+            $allowedExtensions = config('thumbnails.allowed_extensions', ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif']);
+            if (!$compatible && !empty($extension)) {
                 if (!in_array($extension, $allowedExtensions)) {
                     throw new \Exception("File extension '{$extension}' not allowed");
                 }
@@ -336,7 +337,12 @@ class ThumbnailGenerator
                 if ($info === false || !in_array($mime, $types, true)) {
                     throw new \RuntimeException("Source is not a supported image: {$path}");
                 }
-                if ($extension !== '' && ($types[$extension] ?? null) !== $mime) {
+                if ($compatible) {
+                    $allowedTypes = array_map(fn ($allowed) => $types[strtolower($allowed)] ?? null, $allowedExtensions);
+                    if (!in_array($mime, $allowedTypes, true)) {
+                        throw new \RuntimeException("Image format '{$mime}' not allowed: {$path}");
+                    }
+                } elseif ($extension !== '' && ($types[$extension] ?? null) !== $mime) {
                     throw new \RuntimeException("Image content does not match file extension: {$path}");
                 }
             }

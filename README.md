@@ -1,6 +1,6 @@
 # Laravel Smart Thumbnails
 
-Version **4.2.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 3.x.
+Version **4.3.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 3.x.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/3c71d5d7-19ca-4703-9612-d3eeaed23183" alt="Laravel Smart Thumbnails Demo" width="600"/>
@@ -308,6 +308,37 @@ to 10 MiB; set it to `0` to disable the byte limit. With `validate_image_content
 the extension allowlist, recognizes the image header, and verifies that MIME type matches the extension.
 Disabling content validation does not disable the byte or pixel limits. These checks apply both to normal
 requests and queued jobs. Invalid output formats, dimensions, quality, and PNG compression are rejected.
+
+For legacy files whose names do not match their actual format (for example, PNG bytes stored as
+`legacy.jpg`), explicitly enable `allow_mismatched_extensions` in the affected preset or variant:
+
+```php
+'news' => [
+    // Other preset settings...
+    'allow_mismatched_extensions' => true,
+    'variants' => [
+        'strict_preview' => [
+            'width' => 500,
+            'height' => 300,
+            'allow_mismatched_extensions' => false,
+        ],
+    ],
+],
+```
+
+The default is `false`. A variant inherits its preset's setting unless overridden; a preset inherits
+the global `thumbnails.allow_mismatched_extensions` setting. In compatibility mode, `allowed_extensions`
+applies to the format detected from the bytes, and content validation always runs, even if
+`validate_image_content` is disabled. Byte and pixel limits still apply. PNG, WebP, AVIF, JPEG and GIF
+are decoded by their content when supported by the configured image driver. Original files remain
+untouched, and this input policy does not change thumbnail paths for the same source and render settings.
+
+The policy applies to URLs, metadata, existence/path checks, regeneration, Blade rendering, queued jobs
+and obsolete-version cleanup. Pregeneration scans all candidate filenames when a selected preset or
+variant enables compatibility, then validates each candidate against that configuration. A rejected main
+image does not prevent an explicitly compatible variant from being generated; rejected candidates still
+count as command errors. Changing the policy selects a separate metadata cache entry. Source replacements
+remain subject to the metadata TTL; use `imageDataFresh()` when immediate refresh is required.
 
 `cache_urls`, `cache_thumbnails`, and the URL `cache_ttl` are honored. Purges invalidate the relevant
 thumbnail URL namespace, including with file/database cache stores, without clearing unrelated application

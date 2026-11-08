@@ -4,7 +4,6 @@ namespace Askancy\LaravelSmartThumbnails\Commands;
 
 use Askancy\LaravelSmartThumbnails\Jobs\GenerateThumbnailJob;
 use Askancy\LaravelSmartThumbnails\Services\ThumbnailService;
-use Askancy\LaravelSmartThumbnails\Support\ThumbnailGenerator;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 
@@ -15,6 +14,7 @@ class PregenerateThumbnailsCommand extends Command
     protected $description = 'Pre-generate thumbnails for existing images';
 
     protected $thumbnailService;
+    protected ?bool $scanAllExtensions = null;
 
     public function __construct(ThumbnailService $thumbnailService)
     {
@@ -63,6 +63,15 @@ class PregenerateThumbnailsCommand extends Command
 
         $this->info("🎯 Presets to process: " . implode(', ', array_keys($presets)));
 
+        $this->scanAllExtensions = false;
+        foreach ($presets as $presetConfig) {
+            $compatible = $presetConfig['allow_mismatched_extensions'] ?? config('thumbnails.allow_mismatched_extensions', false);
+            $this->scanAllExtensions = $this->scanAllExtensions || $compatible === true;
+            foreach ($presetConfig['variants'] ?? [] as $variant) {
+                $this->scanAllExtensions = $this->scanAllExtensions || ($variant['allow_mismatched_extensions'] ?? $compatible) === true;
+            }
+        }
+
         // Scansiona immagini esistenti
         $this->info("🔍 Scanning for images in {$sourceDisk}:{$scanPath}...");
 
@@ -101,6 +110,7 @@ class PregenerateThumbnailsCommand extends Command
 
                         $totalGenerated += $result['generated_count'];
                         $totalSkipped += $result['skipped_count'];
+                        $totalErrors += $result['errors_count'];
                     } catch (\Exception $e) {
                         $totalErrors++;
                         $this->error("❌ Error processing {$imagePath}: " . $e->getMessage());
@@ -150,6 +160,11 @@ class PregenerateThumbnailsCommand extends Command
             $allowedExtensions = config('thumbnails.allowed_extensions', ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif']);
             $files = Storage::disk($disk)->allFiles($path);
 
+            if ($this->scanAllExtensions ?? (config('thumbnails.allow_mismatched_extensions', false) === true)) {
+                // Candidate names are unrestricted; the reader validates the actual bytes per preset/variant.
+                return array_values($files);
+            }
+
             $images = array_filter($files, function ($file) use ($allowedExtensions) {
                 $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
                 return in_array($extension, $allowedExtensions);
@@ -171,75 +186,45 @@ class PregenerateThumbnailsCommand extends Command
         bool $force,
         bool $dryRun
     ): array {
-        $generated = 0;
-        $skipped = 0;
-
-        try {
-            $this->thumbnailService
-                ->set($presetName)
-                ->src($imagePath, $sourceDisk);
-
-            // Genera thumbnail principale
-            $mainThumbnailPath = $this->thumbnailService->path();
-
-            if ($force || !config('thumbnails.cache_thumbnails', true) || !$this->thumbnailExists($presetConfig['destination']['disk'], $mainThumbnailPath)) {
+        $generated = $skipped = $errors = 0;
+        $this->thumbnailService->set($presetName)->src($imagePath, $sourceDisk);
+        $configurations = [[null, $presetConfig]];
+        foreach ($presetConfig['variants'] ?? [] as $name => $variantConfig) {
+            $configurations[] = [$name, array_replace_recursive($presetConfig, $variantConfig)];
+        }
+        foreach ($configurations as [$variant, $effectiveConfig]) {
+            try {
+                $thumbnailPath = $this->thumbnailService->path($variant);
+                $disk = $effectiveConfig['destination']['disk'];
+                if (!$force && config('thumbnails.cache_thumbnails', true) && $this->thumbnailExists($disk, $thumbnailPath)) {
+                    $skipped++;
+                    if ($this->option('verbose')) {
+                        $this->line("  ⏭ Skipped: {$thumbnailPath} (already exists)");
+                    }
+                    continue;
+                }
                 if (!$dryRun) {
                     if ($async) {
-                        $this->dispatchThumbnailJob($imagePath, $sourceDisk, $presetName, $presetConfig, $mainThumbnailPath, null, $force);
+                        $this->dispatchThumbnailJob($imagePath, $sourceDisk, $presetName, $effectiveConfig, $thumbnailPath, $variant, $force);
                     } else {
-                        $this->thumbnailService->url(null, $force);
+                        $this->thumbnailService->url($variant, $force);
                     }
                 }
                 $generated++;
-
                 if ($this->option('verbose')) {
-                    $this->line("  ✓ Generated: {$mainThumbnailPath}");
+                    $this->line("  ✓ Generated: {$thumbnailPath}");
                 }
-            } else {
-                $skipped++;
-
-                if ($this->option('verbose')) {
-                    $this->line("  ⏭ Skipped: {$mainThumbnailPath} (already exists)");
-                }
+            } catch (\Exception $e) {
+                $errors++;
+                $this->error('Error processing ' . $imagePath . ' (' . ($variant ?? 'main') . '): ' . $e->getMessage());
             }
-
-            // Genera varianti
-            if (isset($presetConfig['variants'])) {
-                foreach ($presetConfig['variants'] as $variantName => $variantConfig) {
-                    $effectiveConfig = array_replace_recursive($presetConfig, $variantConfig);
-                    $variantThumbnailPath = $this->thumbnailService->path($variantName);
-
-                    if ($force || !config('thumbnails.cache_thumbnails', true) || !$this->thumbnailExists($effectiveConfig['destination']['disk'] ?? $presetConfig['destination']['disk'], $variantThumbnailPath)) {
-                        if (!$dryRun) {
-                            if ($async) {
-                                $this->dispatchThumbnailJob($imagePath, $sourceDisk, $presetName, $effectiveConfig, $variantThumbnailPath, $variantName, $force);
-                            } else {
-                                $this->thumbnailService->url($variantName, $force);
-                            }
-                        }
-                        $generated++;
-
-                        if ($this->option('verbose')) {
-                            $this->line("  ✓ Generated variant: {$variantThumbnailPath}");
-                        }
-                    } else {
-                        $skipped++;
-
-                        if ($this->option('verbose')) {
-                            $this->line("  ⏭ Skipped variant: {$variantThumbnailPath} (already exists)");
-                        }
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            throw $e;
         }
-
         return [
             'generated' => $generated > 0,
             'count' => $generated + $skipped,
             'generated_count' => $generated,
             'skipped_count' => $skipped,
+            'errors_count' => $errors,
         ];
     }
 
@@ -258,7 +243,9 @@ class PregenerateThumbnailsCommand extends Command
             $presetName,
             $config,
             $thumbnailPath,
-            $variant, $force, true
+            $variant,
+            $force,
+            true
         )->onQueue(config('thumbnails.queue_name', 'thumbnails'));
     }
 

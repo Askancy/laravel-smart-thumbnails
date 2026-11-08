@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-11-08
+
+### Added
+- Opt-in `allow_mismatched_extensions` setting, configurable globally, per preset or per variant, for valid legacy images whose filename extension differs from their actual format.
+- Regression coverage for mislabeled PNG/WebP/AVIF sources, actual-format allowlists, byte/pixel limits, metadata refresh, Blade, queues, pregeneration and obsolete-version cleanup.
+
+### Fixed
+- Compatible sources are validated against their actual image format across request and background paths, while strict defaults and original files are preserved.
+- Pregeneration processes compatible variants even when the main image is rejected, and scans candidate names independently of their extension when compatibility is enabled.
+- Source path and existence checks enforce the pixel budget before decoding.
+- Addresses [#3](https://github.com/Askancy/laravel-smart-thumbnails/issues/3).
+
 ## [4.2.0] - 2026-11-07
 
 ### Added

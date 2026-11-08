@@ -14,6 +14,7 @@ class ThumbnailIdentity
             'allow_upscale' => ['allow_upscale', true], 'webp_lossless' => ['webp_lossless', false],
             'enable_progressive_jpeg' => ['enable_progressive_jpeg', true],
             'png_compression' => ['png_compression', 6],
+            'allow_mismatched_extensions' => ['allow_mismatched_extensions', false],
         ] as $key => [$global, $default]) {
             $config[$key] ??= config('thumbnails.' . $global, $default);
         }
@@ -49,7 +50,7 @@ class ThumbnailIdentity
     {
         $config = self::settings($config);
         $render = $config;
-        unset($render['variants']);
+        unset($render['variants'], $render['allow_mismatched_extensions']);
         return hash('sha256', serialize(['v3', $disk, str_replace('\\', '/', $source), $sourceHash, $render,
             $variant, config('thumbnails.intervention_driver', 'gd')]));
     }

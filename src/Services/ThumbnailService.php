@@ -293,8 +293,8 @@ class ThumbnailService
         }
 
         try {
-            $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk);
             $config = $this->getEffectiveConfigOptimized($variant);
+            $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk, $config);
             $thumbnailPath = $this->generateThumbnailPathOptimized($config, $variant);
             $disk = $this->getDiskOptimized($config['destination']['disk']);
             return $this->thumbnailExistsOptimized($disk, $thumbnailPath);
@@ -388,13 +388,13 @@ class ThumbnailService
 
         try {
             // Validate image content and extension
-            ThumbnailGenerator::validateImageContent($this->sourcePath);
+            ThumbnailGenerator::validateImageContent($this->sourcePath, null, $config);
 
             if (!Storage::disk($this->sourceDisk)->exists($this->sourcePath)) {
                 throw new \Exception("Source image not found: {$this->sourcePath}");
             }
 
-            $imageContent = ($this->sourceSnapshot ??= SourceImage::read($this->sourcePath, $this->sourceDisk))['content'];
+            $imageContent = ($this->sourceSnapshot ??= SourceImage::read($this->sourcePath, $this->sourceDisk, $config))['content'];
             if (empty($imageContent)) {
                 throw new \Exception("Source image is empty: {$this->sourcePath}");
             }
@@ -454,7 +454,7 @@ class ThumbnailService
      */
     protected function generateThumbnailPath(array $config, ?string $variant = null): string
     {
-        $this->sourceSnapshot ??= SourceImage::read($this->sourcePath, $this->sourceDisk);
+        $this->sourceSnapshot ??= SourceImage::read($this->sourcePath, $this->sourceDisk, $config);
         return ThumbnailIdentity::path(
             $this->sourcePath, $this->sourceDisk, $config, $variant, $this->sourceSnapshot['hash']
         );
@@ -463,8 +463,9 @@ class ThumbnailService
     /** Return the current content-addressed path without generating the thumbnail. */
     public function path(?string $variant = null): string
     {
-        $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk);
-        return $this->generateThumbnailPath($this->getEffectiveConfigOptimized($variant), $variant);
+        $config = $this->getEffectiveConfigOptimized($variant);
+        $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk, $config);
+        return $this->generateThumbnailPath($config, $variant);
     }
 
     public function regenerate(?string $variant = null): string
@@ -693,8 +694,8 @@ class ThumbnailService
         }
         try {
             // Hash current bytes, not just size/mtime: replacements in the same second are detected.
-            $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk);
             $config = $this->getEffectiveConfigOptimized($variant);
+            $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk, $config);
             $path = $this->generateThumbnailPath($config, $variant);
             $disk = Storage::disk($config['destination']['disk']);
             $cacheKey = 'url:v3:' . hash('sha256', $config['destination']['disk'] . ':' . $path);

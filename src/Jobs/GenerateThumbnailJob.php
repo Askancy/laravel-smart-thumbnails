@@ -72,7 +72,7 @@ class GenerateThumbnailJob implements ShouldQueue
     public function handle(SmartCropService $smartCropService)
     {
         try {
-            $source = SourceImage::read($this->sourcePath, $this->sourceDisk);
+            $source = SourceImage::read($this->sourcePath, $this->sourceDisk, $this->config);
             if ($this->managedPath) {
                 $this->thumbnailPath = ThumbnailIdentity::path(
                     $this->sourcePath,
