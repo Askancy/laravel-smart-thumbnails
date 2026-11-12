@@ -7,6 +7,41 @@ use Illuminate\Support\Facades\Storage;
 /** Private ownership records; unknown files are never adopted by the pruner. */
 class ThumbnailManifest
 {
+    /** Serialize generation and explicit invalidation, including across different variants. */
+    public static function withSourceLock(string $source, string $disk, callable $callback)
+    {
+        return GenerationLock::run($disk, '.source-lock/' . hash('sha256', $source), $callback);
+    }
+
+    /** Remove managed derivatives of this source; never read the original or delete unknown files. */
+    public static function invalidateSource(string $source, string $disk): void
+    {
+        self::withSourceLock($source, $disk, function ($sourceLock) use ($source, $disk) {
+            $index = Storage::disk(self::disk());
+            foreach ($index->allFiles(self::root()) as $file) {
+                if (!str_ends_with($file, '.json')) {
+                    continue;
+                }
+                $record = self::read($file);
+                if ($record['source'] !== $source || $record['source_disk'] !== $disk) {
+                    continue;
+                }
+                GenerationLock::run($record['disk'], $record['path'], function ($lock) use ($record, $file, $index, $sourceLock) {
+                    GenerationLock::assertOwned($sourceLock);
+                    GenerationLock::assertOwned($lock);
+                    $output = Storage::disk($record['disk']);
+                    if ($output->exists($record['path']) && !$output->delete($record['path'])) {
+                        throw new \RuntimeException('Could not invalidate the source thumbnail.');
+                    }
+                    if ($index->exists($file) && !$index->delete($file)) {
+                        throw new \RuntimeException('Could not invalidate the thumbnail ownership record.');
+                    }
+                    CacheHelper::flush([$record['preset']]);
+                });
+            }
+        });
+    }
+
     public static function disk(): string
     {
         return config('thumbnails.manifest_disk', 'local');

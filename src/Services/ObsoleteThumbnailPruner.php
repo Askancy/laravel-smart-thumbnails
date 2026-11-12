@@ -107,7 +107,8 @@ class ObsoleteThumbnailPruner
         if (!Storage::disk($record['source_disk'])->exists($record['source'])) {
             return false;
         }
-        $source = SourceImage::read($record['source'], $record['source_disk'], $preset);
+        $source = ThumbnailIdentity::usesContentHash($record['source_disk'], $preset)
+            ? SourceImage::read($record['source'], $record['source_disk'], $preset) : ['hash' => ''];
         return hash_equals($record['identity'], ThumbnailIdentity::fingerprint(
             $record['source'],
             $record['source_disk'],

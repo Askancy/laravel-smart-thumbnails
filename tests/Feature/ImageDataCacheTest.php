@@ -211,6 +211,8 @@ class ImageDataCacheTest extends TestCase
 
     public function test_scoped_parent_configuration_and_source_validation_changes_are_respected(): void
     {
+        // Content identity remains available when immediate original verification is required.
+        config(['thumbnails.source_identity' => 'content']);
         config(['filesystems.disks.source.driver' => 'scoped', 'filesystems.disks.source.disk' => 'parent',
             'filesystems.disks.parent' => ['driver' => 's3', 'bucket' => 'first']]);
         $this->service()->imageData();

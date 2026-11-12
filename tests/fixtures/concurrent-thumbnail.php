@@ -14,6 +14,7 @@ use Intervention\Image\Interfaces\ImageInterface;
 [$script, $root, $role] = $argv;
 $application = new Application(dirname(__DIR__, 2));
 $thumbnails = require dirname(__DIR__, 2) . '/src/config/thumbnails.php';
+$thumbnails['source_identity'] = $argv[4] ?? 'auto';
 $thumbnails['cache_urls'] = false;
 $thumbnails['memory_limit'] = null;
 $thumbnails['generation_lock_wait'] = 10;

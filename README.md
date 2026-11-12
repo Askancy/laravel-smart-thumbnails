@@ -242,66 +242,87 @@ independently. The Blade component uses the resulting dimensions, rather than th
 
 ### Source Identity, Freshness, and Validation
 
-Generated paths include a SHA-256-derived directory identifying the source disk, full source path,
-source bytes, rendering settings, and variant. Identical basenames in different directories or disks
-remain distinct. Replacing the source or changing quality, crop mode, background, or other rendering
-settings produces a new URL, including replacements with identical size and modification time.
+On remote disks (including scoped S3/Spaces disks), thumbnail paths are derived from the source disk,
+full path, storage configuration, rendering settings and variant. **No source content hash or cache
+entry is needed to find an existing thumbnail.** `url()` and `urlSafe()` check the derivative and return
+its URL without reading the original. `path()` computes the path without source I/O, and `exists()`
+checks only the derivative. This remains true after cache eviction, a complete Laravel cache flush,
+and days of inactivity. There is no periodic source revalidation.
 
-`url()` and `urlSafe()` read and hash source bytes on every call to detect replacements reliably;
-their URL cache avoids decoding and rendering, but still requires source I/O, including on remote disks.
-They check existing output files before returning a cached URL. Failures are not cached as successful
-thumbnail URLs. Old content versions remain on disk until purged.
+```php
+'source_identity' => 'auto', // Remote: deterministic path; local: content hash (legacy behavior)
+// 'path': deterministic paths on all disks
+// 'content': hash original bytes on each URL/path/existence lookup, including remote disks
+```
+
+This option may also be overridden per preset or variant. The fluent `strict()` method controls
+exception handling, not source identity. Different source paths/disks, scoped storage configurations,
+render settings and variants have distinct identities. In path mode, `date_based` subdirectories use
+stable hash prefixes instead of today's date, avoiding a new original download each day.
+
+If a derivative is missing, the source is read and validated inside the generation lock, then the
+complete thumbnail is published. Queue workers follow the same existence-first policy. Byte limits,
+pixel limits, extension/MIME checks and supported-format checks still apply during generation.
+Failures are not cached as successes. Disabling `cache_thumbnails` explicitly forces generation and
+therefore reads the original; disabling URL or metadata caching alone does not.
+
+**Source replacements:** changing the original at the same path does not automatically update existing
+remote thumbnails, even after clearing Laravel's cache. After replacing or deleting the original, call:
+
+```php
+Thumbnail::src($path, 's3')->invalidateSource();
+```
+
+This deletes its managed derivatives across presets/variants, using the private ownership manifests
+and the same source/derivative locks as generation. Unrelated sources and untracked files are preserved.
+The next request generates from the current original. Keep the private manifests available to all web
+and queue instances; invalidation scans these records, so it is a write-time operation, not a page-render
+operation. `clearCache()` only clears application cache entries and does not invalidate image files.
+`regenerate($variant)` and `imageDataFresh($variant)` explicitly refresh one selected derivative.
+
+The deterministic URL stays the same after regeneration. A browser/CDN may still hold its previous
+contents: purge that URL from the CDN or, preferably, upload the replacement under a new versioned source
+path. A `source_version` value in a preset/variant also selects a new output identity when changed.
+Use `source_identity => 'content'` if automatic byte-based source versioning is required; this restores
+original reads on every URL/path/existence lookup. Metadata caching still has its own TTL in that mode.
+
+**Migration:** remote path identities use a new `v4-path` namespace. Existing content-hashed thumbnails
+cannot be discovered from the source path alone; the first request generates the new deterministic
+version. Subsequent requests reuse it even with an empty application cache. Old saved URLs/files are
+not rewritten or deleted automatically. Use the existing obsolete-version cleanup when ready. Local
+content identities remain compatible. Rebuild Laravel's config cache during deployment.
+
+**Immediate mitigation on 4.3.0 before upgrading:** use `imageData()['url']` or the native Blade component
+with `cache_image_data => true`, a positive `image_data_cache_ttl`, and a persistent shared cache. Warming
+`cache_urls` alone does not stop original downloads in that version. Metadata can stay stale until its
+TTL; call `imageDataFresh()` after replacements. This mitigation reduces reads but does not provide the
+cache-independent behavior of the new path identity.
 
 ### Cached Image Metadata for Responsive Rendering
 
-`imageData()` and the native Blade component cache successful **URL + actual output width/height**
-for 300 seconds by default. A warm metadata hit does not read the source, download the derivative,
-or check their existence, including across cloned service instances. This avoids repeating remote
-image reads when rendering responsive images. The dimensions remain those of the generated file,
-including when `allow_upscale` is disabled.
-Applications using an `imageData()` caching override can remove that override after upgrading.
+`imageData()` and the Blade component cache successful **URL + actual width/height** for 300 seconds
+by default. Warm metadata hits do not read either image. On a metadata miss in path mode, the existing
+derivative is measured without downloading the original. The dimensions reflect the actual generated
+file, including when `allow_upscale` is disabled.
 
 ```php
 'cache_image_data' => true,
-'image_data_cache_ttl' => 300, // Non-negative integer seconds; 0 disables metadata caching
+'image_data_cache_ttl' => 300, // Non-negative seconds; 0 disables metadata caching
 ```
 
-This cache is independent of `cache_urls`. Set `cache_image_data => false` or
-`image_data_cache_ttl => 0` to verify sources and measure outputs on every `imageData()` call.
-Disabling `cache_thumbnails` also bypasses metadata caching. Cache hits do not extend the expiration.
-The cache identity includes the preset, source disk/full path, variant, effective render and validation
-settings, storage configuration (including scoped parent disks and resolved adapter configuration),
-application URL, and TTL. Changing these settings does not reuse an incompatible entry. Runtime
-changes to Laravel disk configuration must also be applied to its resolved adapters as usual.
+This cache is independent of `cache_urls`. Disabling metadata caching measures the derivative on every
+call; it does not force original reads in path mode. Disabling `cache_thumbnails` bypasses metadata
+caching and forces generation. Cache hits do not extend expiration. Cache identities include source,
+variant, rendering/validation settings, identity mode, disk configuration and URLs. Failures and fallback
+URLs are never stored as successful metadata.
 
-**Freshness:** an in-place source replacement or external deletion of a derivative may remain invisible
-to `imageData()` and Blade until the TTL expires. For immediate verification and an updated metadata
-entry, call:
-
-```php
-$data = Thumbnail::set('products')->src($path, 's3')->imageDataFresh('card');
-```
-
-This refresh first invalidates the preset's metadata namespace, then warms the requested entry, so a
-slower earlier request cannot overwrite the refresh. Other entries of that preset are loaded again on demand.
-
-To invalidate metadata across service instances for a whole preset after updating a source:
-
-```php
-Thumbnail::set('products')->clearCache();
-```
-
-Metadata uses `CacheHelper`'s `['thumbnails', $preset]` invalidation namespaces. Preset/global purges,
-explicit cache clearing, forced regeneration, and completed queue generation invalidate the relevant
-metadata; invalidations also prevent an earlier in-flight load from repopulating the new namespace.
-Use a shared Laravel cache store when invalidations must reach multiple application instances;
-`lock_store` configures generation locks separately from this metadata cache.
-Only successful image data is cached. Source failures, invalid output dimensions, and fallback URLs
-are retried on later calls. `imageDataFresh()` propagates failures while preserving the caller's
-strict/silent mode; the Blade component continues to handle failed main images with its normal fallback.
-For callers requiring immediate verification without metadata, `url()`/`urlSafe()` retain their existing
-behavior. Custom URL builders whose state is outside disk configuration should explicitly clear the
-preset cache when that state changes.
+A deleted derivative can remain invisible to a metadata hit until its TTL expires. Use
+`imageDataFresh($variant)` for an immediate refresh: path mode regenerates the selected thumbnail,
+while content mode checks the current original identity and reuses its derivative when available.
+`invalidateSource()` removes all managed variants of a replaced source; `clearCache()` clears only
+cached metadata/URLs. Purges, forced generation and completed queue generation invalidate the relevant
+metadata namespaces. Use a shared cache and lock store across web/queue instances for coordinated
+invalidation and generation.
 
 `max_file_size` is enforced before reading the full source and again against the bytes read. It defaults
 to 10 MiB; set it to `0` to disable the byte limit. With `validate_image_content => true`, the package checks
@@ -337,8 +358,8 @@ The policy applies to URLs, metadata, existence/path checks, regeneration, Blade
 and obsolete-version cleanup. Pregeneration scans all candidate filenames when a selected preset or
 variant enables compatibility, then validates each candidate against that configuration. A rejected main
 image does not prevent an explicitly compatible variant from being generated; rejected candidates still
-count as command errors. Changing the policy selects a separate metadata cache entry. Source replacements
-remain subject to the metadata TTL; use `imageDataFresh()` when immediate refresh is required.
+count as command errors. Changing the policy selects a separate metadata cache entry. Remote source
+replacements require invalidation by default; use `imageDataFresh()` for immediate verification and refresh.
 
 `cache_urls`, `cache_thumbnails`, and the URL `cache_ttl` are honored. Purges invalidate the relevant
 thumbnail URL namespace, including with file/database cache stores, without clearing unrelated application

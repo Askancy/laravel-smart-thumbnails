@@ -30,6 +30,7 @@ class ThumbnailService
     protected $silentMode;
     protected $imageManager;
     protected ?array $sourceSnapshot = null;
+    protected ?Lock $sourceGenerationLock = null;
 
     // ==================== CACHE OTTIMIZZATA - SOLO DISK CACHE STATICA ====================
     protected static array $diskCache = [];
@@ -294,7 +295,7 @@ class ThumbnailService
 
         try {
             $config = $this->getEffectiveConfigOptimized($variant);
-            $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk, $config);
+            $this->sourceSnapshot = $this->resolveSource($config);
             $thumbnailPath = $this->generateThumbnailPathOptimized($config, $variant);
             $disk = $this->getDiskOptimized($config['destination']['disk']);
             return $this->thumbnailExistsOptimized($disk, $thumbnailPath);
@@ -394,7 +395,10 @@ class ThumbnailService
                 throw new \Exception("Source image not found: {$this->sourcePath}");
             }
 
-            $imageContent = ($this->sourceSnapshot ??= SourceImage::read($this->sourcePath, $this->sourceDisk, $config))['content'];
+            if (!isset($this->sourceSnapshot['content'])) {
+                $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk, $config);
+            }
+            $imageContent = $this->sourceSnapshot['content'];
             if (empty($imageContent)) {
                 throw new \Exception("Source image is empty: {$this->sourcePath}");
             }
@@ -420,7 +424,7 @@ class ThumbnailService
             $processedImage = ThumbnailGenerator::convertFormat($image, $format, $quality, $config);
 
             $record = ThumbnailManifest::record($this->sourcePath, $this->sourceDisk, $this->configKey, $variant, $config, $this->sourceSnapshot['hash']);
-            ThumbnailPublisher::publish($config['destination']['disk'], $thumbnailPath, $processedImage, $lock, $record);
+            ThumbnailPublisher::publish($config['destination']['disk'], $thumbnailPath, $processedImage, $lock, $record, $this->sourceGenerationLock);
 
             // Cleanup memory (Intervention Image 3.x manages this automatically, but we can destroy explicitly)
             unset($image);
@@ -454,17 +458,17 @@ class ThumbnailService
      */
     protected function generateThumbnailPath(array $config, ?string $variant = null): string
     {
-        $this->sourceSnapshot ??= SourceImage::read($this->sourcePath, $this->sourceDisk, $config);
+        $this->sourceSnapshot ??= $this->resolveSource($config);
         return ThumbnailIdentity::path(
             $this->sourcePath, $this->sourceDisk, $config, $variant, $this->sourceSnapshot['hash']
         );
     }
 
-    /** Return the current content-addressed path without generating the thumbnail. */
+    /** Return the selected identity's path without generating the thumbnail. */
     public function path(?string $variant = null): string
     {
         $config = $this->getEffectiveConfigOptimized($variant);
-        $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk, $config);
+        $this->sourceSnapshot = $this->resolveSource($config);
         return $this->generateThumbnailPath($config, $variant);
     }
 
@@ -510,7 +514,7 @@ class ThumbnailService
         $originalMode = $this->silentMode;
         $this->silentMode = false;
         try {
-            $this->url($variant);
+            $this->url($variant, $fresh && !ThumbnailIdentity::usesContentHash($this->sourceDisk, $config));
             $path = $this->generateThumbnailPath($config, $variant);
             $binary = Storage::disk($config['destination']['disk'])->get($path);
             $size = is_string($binary) ? @getimagesizefromstring($binary) : false;
@@ -542,7 +546,32 @@ class ThumbnailService
             CacheHelper::namespaceFingerprint([self::CACHE_TAG, $this->configKey]),
             config('app.url'), $this->imageDataDiskFingerprint($this->sourceDisk),
             $this->imageDataDiskFingerprint($config['destination']['disk']),
+            ThumbnailIdentity::usesContentHash($this->sourceDisk, $config),
+            CacheHelper::namespaceFingerprint([$this->sourceCacheTag()]),
         ]));
+    }
+
+    protected function sourceCacheTag(): string
+    {
+        return 'source:' . hash('sha256', serialize([$this->sourceDisk, $this->sourcePath]));
+    }
+
+    /** Call after replacing/deleting this source to invalidate all presets and variants. */
+    public function invalidateSource(): void
+    {
+        if (!$this->sourcePath || !$this->sourceDisk) {
+            throw new \LogicException('Select a source before invalidating its thumbnails.');
+        }
+        ThumbnailManifest::invalidateSource($this->sourcePath, $this->sourceDisk);
+        CacheHelper::flush([$this->sourceCacheTag()]);
+        $this->sourceSnapshot = null;
+    }
+
+    /** Resolve bytes only when content-based identity was explicitly selected (or on local disks). */
+    protected function resolveSource(array $config): array
+    {
+        return ThumbnailIdentity::usesContentHash($this->sourceDisk, $config)
+            ? SourceImage::read($this->sourcePath, $this->sourceDisk, $config) : ['hash' => ''];
     }
 
     /** Include both configured scoped parents and the actual resolved adapter, without reading files. */
@@ -693,18 +722,24 @@ class ThumbnailService
             return $this->getFallbackUrl();
         }
         try {
-            // Hash current bytes, not just size/mtime: replacements in the same second are detected.
             $config = $this->getEffectiveConfigOptimized($variant);
-            $this->sourceSnapshot = SourceImage::read($this->sourcePath, $this->sourceDisk, $config);
+            $this->sourceSnapshot = $this->resolveSource($config);
             $path = $this->generateThumbnailPath($config, $variant);
             $disk = Storage::disk($config['destination']['disk']);
             $cacheKey = 'url:v3:' . hash('sha256', $config['destination']['disk'] . ':' . $path);
             $tags = [self::CACHE_TAG, $this->configKey];
             if ($force || !config('thumbnails.cache_thumbnails', true) || !$disk->exists($path)) {
-                GenerationLock::run($config['destination']['disk'], $path, function (Lock $lock) use ($config, $path, $force, $variant, $disk) {
-                    // A worker may have completed this thumbnail while this request waited for its lock.
-                    if ($force || !config('thumbnails.cache_thumbnails', true) || !$disk->exists($path)) {
-                        $this->generateThumbnailSafe($config, $path, $lock, $variant);
+                ThumbnailManifest::withSourceLock($this->sourcePath, $this->sourceDisk, function (Lock $sourceLock) use ($config, $path, $force, $variant, $disk) {
+                    $this->sourceGenerationLock = $sourceLock;
+                    try {
+                        GenerationLock::run($config['destination']['disk'], $path, function (Lock $lock) use ($config, $path, $force, $variant, $disk) {
+                            // A worker may have completed this thumbnail while this request waited for its lock.
+                            if ($force || !config('thumbnails.cache_thumbnails', true) || !$disk->exists($path)) {
+                                $this->generateThumbnailSafe($config, $path, $lock, $variant);
+                            }
+                        });
+                    } finally {
+                        $this->sourceGenerationLock = null;
                     }
                 });
                 CacheHelper::forget($tags, $cacheKey);

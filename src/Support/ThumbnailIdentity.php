@@ -4,6 +4,28 @@ namespace Askancy\LaravelSmartThumbnails\Support;
 
 class ThumbnailIdentity
 {
+    /** Auto preserves local content identities and uses deterministic paths on remote disks. */
+    public static function usesContentHash(string $disk, array $config): bool
+    {
+        $mode = $config['source_identity'] ?? config('thumbnails.source_identity', 'auto');
+        if (!in_array($mode, ['auto', 'path', 'content'], true)) {
+            throw new \InvalidArgumentException('Source identity must be auto, path or content.');
+        }
+        if ($mode !== 'auto') {
+            return $mode === 'content';
+        }
+        $seen = [];
+        while (!isset($seen[$disk])) {
+            $seen[$disk] = true;
+            $settings = config('filesystems.disks.' . $disk, []);
+            if (($settings['driver'] ?? null) !== 'scoped') {
+                return ($settings['driver'] ?? 'local') === 'local';
+            }
+            $disk = $settings['disk'] ?? $disk;
+        }
+        throw new \InvalidArgumentException('Circular scoped source disk configuration.');
+    }
+
     /** Resolve global rendering defaults once, including for queued jobs. */
     public static function settings(array $config): array
     {
@@ -15,6 +37,7 @@ class ThumbnailIdentity
             'enable_progressive_jpeg' => ['enable_progressive_jpeg', true],
             'png_compression' => ['png_compression', 6],
             'allow_mismatched_extensions' => ['allow_mismatched_extensions', false],
+            'source_identity' => ['source_identity', 'auto'],
         ] as $key => [$global, $default]) {
             $config[$key] ??= config('thumbnails.' . $global, $default);
         }
@@ -50,8 +73,22 @@ class ThumbnailIdentity
     {
         $config = self::settings($config);
         $render = $config;
-        unset($render['variants'], $render['allow_mismatched_extensions']);
-        return hash('sha256', serialize(['v3', $disk, str_replace('\\', '/', $source), $sourceHash, $render,
+        unset($render['variants'], $render['allow_mismatched_extensions'], $render['source_identity']);
+        $contentIdentity = self::usesContentHash($disk, $config);
+        if (!$contentIdentity) {
+            // A reconfigured bucket/prefix must not silently select another source's derivative.
+            $storage = [];
+            $name = $disk;
+            while (!array_key_exists($name, $storage)) {
+                $storage[$name] = config('filesystems.disks.' . $name, []);
+                if (($storage[$name]['driver'] ?? null) !== 'scoped') {
+                    break;
+                }
+                $name = $storage[$name]['disk'] ?? $name;
+            }
+            $render['source_storage'] = $storage;
+        }
+        return hash('sha256', serialize([$contentIdentity ? 'v3' : 'v4-path', $disk, str_replace('\\', '/', $source), $contentIdentity ? $sourceHash : '', $render,
             $variant, config('thumbnails.intervention_driver', 'gd')]));
     }
 
@@ -70,6 +107,10 @@ class ThumbnailIdentity
         }
         $suffix .= ThumbnailGenerator::renderingSuffix($config);
         $strategy = $config['subdirectory_strategy'] ?? config('thumbnails.default_subdirectory_strategy', 'hash_prefix');
+        // Today's date cannot be part of a stable lookup: it would redownload every day.
+        if ($strategy === 'date_based' && !self::usesContentHash($disk, $config)) {
+            $strategy = $config['subdirectory_strategy'] = 'hash_prefix';
+        }
         $directory = ThumbnailGenerator::generateSubdirectory(in_array($strategy, ['hash_prefix', 'hash_levels'], true) ? $identity : $filename, $config);
 
         $base = trim($config['destination']['path'], '/');

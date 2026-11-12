@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static array imageData(?string $variant = null)
  * @method static array imageDataFresh(?string $variant = null)
  * @method static void clearCache()
+ * @method static void invalidateSource()
  * @method static string urlSafe(string $variant = null)
  * @method static array getAvailableDisks()
  * @method static array getScopedDisks()

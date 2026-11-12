@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Remote thumbnails use deterministic source-path/render identities. Existing derivatives are resolved without original downloads even after a complete Laravel cache flush; there is no periodic source revalidation (issue #4).
+- Queue workers skip existing derivatives before reading originals. Generation still validates source bytes and publishes under locks; obsolete-version cleanup recognizes path identities without downloading originals.
+- Path identities use stable hash prefixes for date-based layouts, avoiding daily regeneration.
+
+### Added
+- `source_identity` (`auto`, `path`, `content`): auto uses path identities on remote/scoped remote disks and retains content hashing on local disks. Presets/variants can override it.
+- `invalidateSource()` removes managed derivatives across presets/variants under source/derivative locks. `regenerate()` and `imageDataFresh()` refresh a selected derivative; same-path replacements require explicit invalidation by default on remote disks.
+- Regression coverage for cache flushes, elapsed time, original deletion, variants, Blade, queues, pruning, input validation and concurrent web/queue publication.
+
+### Migration
+- Remote identity paths change once to `v4-path`; first access generates a new derivative. Legacy files remain until explicitly cleaned up. Content mode preserves legacy identities.
+- Regenerated path-based thumbnails retain their URLs. Purge CDN/browser caches or use a new versioned source path when replacing an image. Clearing application cache alone does not invalidate thumbnail files.
+
 ## [4.3.0] - 2026-11-08
 
 ### Added

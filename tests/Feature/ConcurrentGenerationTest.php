@@ -13,6 +13,7 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Process\Process;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class ConcurrentGenerationTest extends TestCase
 {
@@ -105,7 +106,13 @@ class ConcurrentGenerationTest extends TestCase
         $this->assertSame('previous-complete-file', $real->get('outputs/result.png'));
     }
 
-    public function test_independent_web_and_queue_processes_render_once_and_publish_a_complete_image(): void
+    public static function identityModes(): array
+    {
+        return [['content'], ['path']];
+    }
+
+    #[DataProvider('identityModes')]
+    public function test_independent_web_and_queue_processes_render_once_and_publish_a_complete_image(string $identity): void
     {
         $base = storage_path('framework/testing');
         $root = $base . '/concurrency-' . bin2hex(random_bytes(12));
@@ -113,8 +120,8 @@ class ConcurrentGenerationTest extends TestCase
         $files->ensureDirectoryExists($root . '/storage');
         file_put_contents($root . '/storage/source.png', Storage::disk('local')->get('source.png'));
         $fixture = dirname(__DIR__) . '/fixtures/concurrent-thumbnail.php';
-        $web = new Process([PHP_BINARY, $fixture, $root, 'web'], timeout: 20);
-        $queue = new Process([PHP_BINARY, $fixture, $root, 'queue'], timeout: 20);
+        $web = new Process([PHP_BINARY, $fixture, $root, 'web', $identity], timeout: 20);
+        $queue = new Process([PHP_BINARY, $fixture, $root, 'queue', $identity], timeout: 20);
         try {
             $web->start();
             $queue->start();

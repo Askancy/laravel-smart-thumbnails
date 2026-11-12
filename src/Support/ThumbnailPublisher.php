@@ -8,9 +8,12 @@ use Illuminate\Support\Facades\Storage;
 class ThumbnailPublisher
 {
     /** Publish only a complete temporary object, leaving an existing output intact on write failure. */
-    public static function publish(string $disk, string $path, string $binary, Lock $lock, ?array $record = null): void
+    public static function publish(string $disk, string $path, string $binary, Lock $lock, ?array $record = null, ?Lock $sourceLock = null): void
     {
         GenerationLock::assertOwned($lock);
+        if ($sourceLock !== null) {
+            GenerationLock::assertOwned($sourceLock);
+        }
         ThumbnailGenerator::ensureDestinationDirectory($disk, dirname($path));
         $storage = Storage::disk($disk);
         $temporary = dirname($path) . '/.' . basename($path) . '.' . bin2hex(random_bytes(16)) . '.tmp';
@@ -19,6 +22,9 @@ class ThumbnailPublisher
                 throw new \RuntimeException("Could not write thumbnail: {$path}");
             }
             GenerationLock::assertOwned($lock);
+            if ($sourceLock !== null) {
+                GenerationLock::assertOwned($sourceLock);
+            }
             if (!$storage->move($temporary, $path)) {
                 throw new \RuntimeException("Could not publish thumbnail: {$path}");
             }
