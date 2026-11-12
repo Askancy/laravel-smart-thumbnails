@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-11-12
+
 ### Fixed
 - Remote thumbnails use deterministic source-path/render identities. Existing derivatives are resolved without original downloads even after a complete Laravel cache flush; there is no periodic source revalidation (issue #4).
 - Queue workers skip existing derivatives before reading originals. Generation still validates source bytes and publishes under locks; obsolete-version cleanup recognizes path identities without downloading originals.

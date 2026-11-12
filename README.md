@@ -1,6 +1,6 @@
 # Laravel Smart Thumbnails
 
-Version **4.3.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 3.x.
+Version **5.0.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 4.x or earlier.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/3c71d5d7-19ca-4703-9612-d3eeaed23183" alt="Laravel Smart Thumbnails Demo" width="600"/>
@@ -526,16 +526,31 @@ php artisan tinker
 
 <a id="upgrade-guide"></a>
 
-## 🔄 Upgrade Guide (4.0.0)
+## 🔄 Upgrade Guide (5.0.0)
 
 When upgrading from an older version, check the PHP, Laravel, and Intervention Image requirements above
 and review your published configuration, including `allowed_extensions` for AVIF sources.
 
-For applications upgrading from 3.x:
+For applications upgrading from 4.x:
 
-1. Update the Composer constraint to `^4.0` and install the release:
+1. Install `askancy/laravel-smart-thumbnails:^5.0` with Composer.
+2. Remote/scoped remote disks now use deterministic path identities by default. The first access
+   generates a new derivative; subsequent lookups do not read originals, even after cache flushes.
+   Keep old thumbnail files while existing links still use them.
+3. After replacing an original at the same path, call `Thumbnail::src($path, $disk)->invalidateSource()`
+   or explicitly regenerate the selected variant. Clearing application cache does not invalidate files.
+   Prefer versioned source paths for replacements; otherwise purge the affected CDN URLs.
+4. To retain the 4.x behavior and paths on remote disks, set `source_identity => 'content'` globally
+   or per preset. This restores original downloads for URL/path/existence checks. Local disks retain
+   content identities under the default `auto` setting.
+5. Keep the private ownership manifests and lock store available to all web/queue instances.
+   In path mode, `date_based` layouts now use stable hash prefixes to avoid daily regeneration.
+
+For applications upgrading from 3.x, also apply these changes:
+
+1. Update the Composer constraint to `^5.0` and install the release:
    ```bash
-   composer require askancy/laravel-smart-thumbnails:^4.0
+   composer require askancy/laravel-smart-thumbnails:^5.0
    ```
 2. Merge the new settings into your published configuration, especially `allow_upscale`, `lock_store`,
    `generation_lock_seconds`, `generation_lock_wait`, `manifest_disk`, `manifest_path`, and
