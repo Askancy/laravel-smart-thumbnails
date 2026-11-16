@@ -286,11 +286,11 @@ path. A `source_version` value in a preset/variant also selects a new output ide
 Use `source_identity => 'content'` if automatic byte-based source versioning is required; this restores
 original reads on every URL/path/existence lookup. Metadata caching still has its own TTL in that mode.
 
-**Migration:** remote path identities use a new `v4-path` namespace. Existing content-hashed thumbnails
-cannot be discovered from the source path alone; the first request generates the new deterministic
-version. Subsequent requests reuse it even with an empty application cache. Old saved URLs/files are
-not rewritten or deleted automatically. Use the existing obsolete-version cleanup when ready. Local
-content identities remain compatible. Rebuild Laravel's config cache during deployment.
+**Migration:** remote path identities use the `v4-path` namespace. To retain compatible 4.3 URLs,
+run the [explicit legacy adoption](#adopting-43-derivatives) before serving traffic with the new version.
+Unadopted requests generate a deterministic derivative on first access. Old saved URLs/files are
+not rewritten or deleted automatically. Local content identities remain compatible.
+Rebuild Laravel's config cache during deployment.
 
 **Immediate mitigation on 4.3.0 before upgrading:** use `imageData()['url']` or the native Blade component
 with `cache_image_data => true`, a positive `image_data_cache_ttl`, and a persistent shared cache. Warming
@@ -534,9 +534,10 @@ and review your published configuration, including `allowed_extensions` for AVIF
 For applications upgrading from 4.x:
 
 1. Install `askancy/laravel-smart-thumbnails:^5.0` with Composer.
-2. Remote/scoped remote disks now use deterministic path identities by default. The first access
-   generates a new derivative; subsequent lookups do not read originals, even after cache flushes.
-   Keep old thumbnail files while existing links still use them.
+2. Remote/scoped remote disks now use deterministic path identities by default. Adopt compatible
+   4.3 derivatives as described below to preserve their URLs without rendering. Unadopted requests
+   generate a new derivative on first access. Subsequent lookups do not read originals, even after
+   cache flushes. Keep old thumbnail files while existing links still use them.
 3. After replacing an original at the same path, call `Thumbnail::src($path, $disk)->invalidateSource()`
    or explicitly regenerate the selected variant. Clearing application cache does not invalidate files.
    Prefer versioned source paths for replacements; otherwise purge the affected CDN URLs.
@@ -545,6 +546,68 @@ For applications upgrading from 4.x:
    content identities under the default `auto` setting.
 5. Keep the private ownership manifests and lock store available to all web/queue instances.
    In path mode, `date_based` layouts now use stable hash prefixes to avoid daily regeneration.
+
+### Adopting 4.3 derivatives
+
+Use `thumbnails:adopt-legacy` from a release containing this command, before enabling new-version
+traffic or obsolete pruning. It accepts explicit private manifest paths, at most 100 per invocation;
+it never scans the source/destination bucket. Prepare batches from your private manifest inventory.
+Keep the same disk names, bucket/prefix mappings, preset ordering/settings and image driver used by
+4.3. The 4.3 identity did not capture physical bucket mappings, so unchanged mappings are an upgrade
+precondition; the importer cannot infer their historical values.
+
+```bash
+# Inventory-only check: no original reads; incomplete identities are reported as ambiguous.
+php artisan thumbnails:adopt-legacy smart-thumbnails/manifests/ab/abcdef.json
+# Verify a batch, explicitly permitting source reads, without changing any files:
+php artisan thumbnails:adopt-legacy smart-thumbnails/manifests/ab/abcdef.json --read-sources --dry-run
+# Adopt the verified batch (replace the example with real manifest paths):
+php artisan thumbnails:adopt-legacy smart-thumbnails/manifests/ab/abcdef.json --read-sources
+```
+
+The schema-1 manifests actually shipped in 4.3 record source/disk, preset/variant, destination,
+output checksum and an opaque rendering identity. They contain neither source checksums nor full
+rendering settings. Therefore **each unadopted manifest requires one validated original read** to
+reconstruct and compare the exact 4.3 identity. This also verifies that the current source matches
+the old rendering. Multiple variants can each require a read. A dry run performs those reads again
+when subsequently applied. No image decoding/rendering or derivative copying/uploading occurs during
+adoption; the derivative is read once to verify its checksum. Standard byte, pixel and MIME limits
+still apply. Existing successful adoptions need no original reads when a batch is retried.
+
+Each invocation reports `reused` (would reuse under `--dry-run`), `missing`, `ambiguous`, `errors`,
+`source_reads` (source-read attempts) and `source_bytes` (successfully validated source bytes).
+Errors return a nonzero status; other entries in the batch still progress. Rerun interrupted batches:
+publication uses temporary private objects and a final move, protected by the same source/output
+locks as workers and invalidation. A competing adoption for another path is reported as ambiguous.
+The first verified adoption is retained. Orphaned temporary objects are ignored.
+
+Pointers are stored on `manifest_disk` in `<manifest_path>-adoptions/`, outside the manifest/prune
+inventory. Keep **both** directories on durable private storage shared by every web/queue instance,
+outside disposable release directories, together with the shared atomic lock store. Back them up
+before migration. Laravel cache flushes, worker restarts and deploys do not remove this index.
+Normal requests perform direct pointer/manifest lookups only. `url()`, `urlSafe()`, `path()`, `exists()`,
+`imageData()`, responsive components and managed jobs all resolve the adopted path, including historical
+`date_based` directories. No original downloads are required for these hits.
+
+Missing manifests, mismatched identities/checksums, removed variants and incompatible settings are
+never guessed from image dimensions or filenames. Unindexed files remain untouched and require normal
+generation on first request. There is no implicit bucket scan, purge or asset deletion. A missing
+adopted output can be regenerated at its adopted URL. `regenerate()` and `imageDataFresh()` refresh
+that URL and its ownership checksum. `invalidateSource()` explicitly removes owned outputs/manifests,
+including adopted ones; the next request then uses the normal path identity. Changing rendering
+settings or source/destination disk mappings stops selection of the old pointer. A currently adopted
+legacy derivative is protected from obsolete pruning. Delay pruning until migration and rollback
+validation are complete; pruning remains an explicitly destructive operation.
+
+Rollback: stop new workers, restore the previous package/configuration, and retain all originals,
+derivatives and schema-1 manifests. The extra adoption directory is ignored by 4.3; there is no need
+to delete it. Saved legacy URLs keep working. A rollback restores 4.3's original-read behavior.
+Explicit regeneration/invalidation or pruning performed after adoption is not undone by rollback.
+
+Rendering identity versions (`v3`, `v4-path`) describe identity algorithms, **not package versions**.
+Ordinary package releases must retain them. Incompatible rendering changes require an explicit
+identity revision and documented migration; do not automatically incorporate the Composer version.
+Use `source_version` for an intentional application-level revision.
 
 For applications upgrading from 3.x, also apply these changes:
 

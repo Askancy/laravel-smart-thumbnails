@@ -64,10 +64,11 @@ class ThumbnailManifest
 
     public static function record(string $source, string $sourceDisk, string $preset, ?string $variant, array $config, string $sourceHash): array
     {
+        $adopted = LegacyThumbnailIndex::resolve($source, $sourceDisk, $config, $variant, $preset);
         return [
             'schema' => 1, 'source' => $source, 'source_disk' => $sourceDisk,
             'preset' => $preset, 'variant' => $variant,
-            'identity' => ThumbnailIdentity::fingerprint($source, $sourceDisk, $config, $variant, $sourceHash),
+            'identity' => $adopted['identity'] ?? ThumbnailIdentity::fingerprint($source, $sourceDisk, $config, $variant, $sourceHash),
             'destination_root' => trim($config['destination']['path'], '/'),
         ];
     }

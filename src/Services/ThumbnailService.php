@@ -459,8 +459,8 @@ class ThumbnailService
     protected function generateThumbnailPath(array $config, ?string $variant = null): string
     {
         $this->sourceSnapshot ??= $this->resolveSource($config);
-        return ThumbnailIdentity::path(
-            $this->sourcePath, $this->sourceDisk, $config, $variant, $this->sourceSnapshot['hash']
+        return ThumbnailIdentity::resolvedPath(
+            $this->sourcePath, $this->sourceDisk, $config, $variant, $this->sourceSnapshot['hash'], $this->configKey
         );
     }
 
@@ -726,24 +726,27 @@ class ThumbnailService
             $this->sourceSnapshot = $this->resolveSource($config);
             $path = $this->generateThumbnailPath($config, $variant);
             $disk = Storage::disk($config['destination']['disk']);
-            $cacheKey = 'url:v3:' . hash('sha256', $config['destination']['disk'] . ':' . $path);
             $tags = [self::CACHE_TAG, $this->configKey];
             if ($force || !config('thumbnails.cache_thumbnails', true) || !$disk->exists($path)) {
-                ThumbnailManifest::withSourceLock($this->sourcePath, $this->sourceDisk, function (Lock $sourceLock) use ($config, $path, $force, $variant, $disk) {
+                $path = ThumbnailManifest::withSourceLock($this->sourcePath, $this->sourceDisk, function (Lock $sourceLock) use ($config, $force, $variant, $disk) {
                     $this->sourceGenerationLock = $sourceLock;
                     try {
+                        // Adoption or invalidation may have changed the selected path while waiting.
+                        $path = $this->generateThumbnailPath($config, $variant);
                         GenerationLock::run($config['destination']['disk'], $path, function (Lock $lock) use ($config, $path, $force, $variant, $disk) {
                             // A worker may have completed this thumbnail while this request waited for its lock.
                             if ($force || !config('thumbnails.cache_thumbnails', true) || !$disk->exists($path)) {
                                 $this->generateThumbnailSafe($config, $path, $lock, $variant);
                             }
                         });
+                        return $path;
                     } finally {
                         $this->sourceGenerationLock = null;
                     }
                 });
-                CacheHelper::forget($tags, $cacheKey);
+                CacheHelper::forget($tags, 'url:v3:' . hash('sha256', $config['destination']['disk'] . ':' . $path));
             }
+            $cacheKey = 'url:v3:' . hash('sha256', $config['destination']['disk'] . ':' . $path);
             if ($force) {
                 CacheHelper::flush([$this->configKey]);
             }

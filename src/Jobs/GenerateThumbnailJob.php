@@ -76,12 +76,13 @@ class GenerateThumbnailJob implements ShouldQueue
                 $source = $this->managedPath && ThumbnailIdentity::usesContentHash($this->sourceDisk, $this->config)
                     ? SourceImage::read($this->sourcePath, $this->sourceDisk, $this->config) : null;
                 if ($this->managedPath) {
-                    $this->thumbnailPath = ThumbnailIdentity::path(
+                    $this->thumbnailPath = ThumbnailIdentity::resolvedPath(
                         $this->sourcePath,
                         $this->sourceDisk,
                         $this->config,
                         $this->variant,
-                        $source['hash'] ?? ''
+                        $source['hash'] ?? '',
+                        $this->configKey
                     );
                 }
                 GenerationLock::run($this->config['destination']['disk'], $this->thumbnailPath, function (Lock $lock) use ($source, $smartCropService, $sourceLock) {

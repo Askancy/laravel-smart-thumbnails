@@ -50,6 +50,7 @@ class ThumbnailServiceProvider extends ServiceProvider
                     ThumbnailPurgeCommand::class,
                     PregenerateThumbnailsCommand::class,
                     PruneThumbnailsCommand::class,
+                    \Askancy\LaravelSmartThumbnails\Commands\AdoptLegacyThumbnailsCommand::class,
                 ]);
             }
         }

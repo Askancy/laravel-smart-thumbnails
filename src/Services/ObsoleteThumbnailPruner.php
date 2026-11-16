@@ -7,6 +7,7 @@ use Askancy\LaravelSmartThumbnails\Support\GenerationLock;
 use Askancy\LaravelSmartThumbnails\Support\SourceImage;
 use Askancy\LaravelSmartThumbnails\Support\ThumbnailIdentity;
 use Askancy\LaravelSmartThumbnails\Support\ThumbnailManifest;
+use Askancy\LaravelSmartThumbnails\Support\LegacyThumbnailIndex;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Storage;
@@ -103,6 +104,10 @@ class ObsoleteThumbnailPruner
                 return false;
             }
             $preset = array_replace_recursive($preset, $preset['variants'][$record['variant']]);
+        }
+        $adopted = LegacyThumbnailIndex::resolve($record['source'], $record['source_disk'], $preset, $record['variant'], $record['preset']);
+        if ($adopted !== null && $adopted['path'] === $record['path']) {
+            return true;
         }
         if (!Storage::disk($record['source_disk'])->exists($record['source'])) {
             return false;

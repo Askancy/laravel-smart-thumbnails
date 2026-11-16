@@ -117,4 +117,10 @@ class ThumbnailIdentity
         return ($base === '' ? '' : $base . '/') . $directory . substr($identity, 0, 32) . '/'
             . $filename . '_' . $suffix . '.' . $config['format'];
     }
+
+    public static function resolvedPath(string $source, string $disk, array $config, ?string $variant, string $sourceHash, string $preset): string
+    {
+        $record = LegacyThumbnailIndex::resolve($source, $disk, $config, $variant, $preset);
+        return $record['path'] ?? self::path($source, $disk, $config, $variant, $sourceHash);
+    }
 }
