@@ -1,6 +1,6 @@
 # Laravel Smart Thumbnails
 
-Version **5.0.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 4.x or earlier.
+Version **5.1.0**. See the [upgrade guide](#upgrade-guide) before upgrading from 4.x or earlier.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/3c71d5d7-19ca-4703-9612-d3eeaed23183" alt="Laravel Smart Thumbnails Demo" width="600"/>
@@ -526,7 +526,7 @@ php artisan tinker
 
 <a id="upgrade-guide"></a>
 
-## 🔄 Upgrade Guide (5.0.0)
+## 🔄 Upgrade Guide (5.1.0)
 
 When upgrading from an older version, check the PHP, Laravel, and Intervention Image requirements above
 and review your published configuration, including `allowed_extensions` for AVIF sources.
@@ -549,7 +549,7 @@ For applications upgrading from 4.x:
 
 ### Adopting 4.3 derivatives
 
-Use `thumbnails:adopt-legacy` from a release containing this command, before enabling new-version
+Use `thumbnails:adopt-legacy` from version 5.1.0 or later, before enabling new-version
 traffic or obsolete pruning. It accepts explicit private manifest paths, at most 100 per invocation;
 it never scans the source/destination bucket. Prepare batches from your private manifest inventory.
 Keep the same disk names, bucket/prefix mappings, preset ordering/settings and image driver used by

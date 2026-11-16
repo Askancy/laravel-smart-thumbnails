@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-11-16
+
+### Added
+- `thumbnails:adopt-legacy` verifies and reuses compatible 4.3 derivatives without rendering, copying or uploading thumbnails. Supports explicit batches of up to 100 manifests, `--dry-run`, resumable retries and migration counters.
+- A durable private adoption index preserves existing URLs across cache flushes, deployments and worker restarts, including historical `date_based` paths.
+- Upgrade and rollback instructions, plus regression coverage using the original 4.3 identity and manifest implementations.
+
+### Fixed
+- Web lookups, responsive components and managed jobs reuse adopted legacy derivatives without repeated original downloads. Regeneration, invalidation and obsolete pruning respect their ownership records.
+- Resolves [#6](https://github.com/Askancy/laravel-smart-thumbnails/issues/6).
+
+### Migration
+- Existing 4.3 schema-1 manifests lack the source checksum and full rendering settings. Adoption therefore requires an explicit `--read-sources` option and one validated original read per unadopted manifest; dry-run verification incurs the same read cost again when applied.
+- Keep private manifests and the adoption index on durable shared storage. Run adoption before enabling new-version traffic or obsolete pruning. No production migration or asset deletion runs automatically.
+
 ## [5.0.0] - 2026-11-12
 
 ### Fixed
