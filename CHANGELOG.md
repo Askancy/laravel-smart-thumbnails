@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-11-17
+
 ### Fixed
 - `imageData()` and `<x-smart-thumbnail>` no longer download every derivative to measure it: dimensions are recorded in the ownership manifest at generation time, with a header-only read as fallback.
 - Originals that are downloaded and then refused (format mismatch, size, pixel budget, undecodable) are remembered for `failure_cache_ttl` seconds instead of being downloaded again on every request.
