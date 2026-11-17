@@ -71,7 +71,7 @@ class ObsoleteThumbnailPruner
                         if (!$disk->delete($record['path']) || !$index->delete($file)) {
                             throw new \RuntimeException('Could not delete the obsolete thumbnail and its record.');
                         }
-                        CacheHelper::flush([$record['preset']]);
+                        CacheHelper::flush([CacheHelper::sourceTag($record['source_disk'], $record['source'])]);
                     }
                     return ['state' => 'obsolete', 'deleted' => !$dryRun];
                 });

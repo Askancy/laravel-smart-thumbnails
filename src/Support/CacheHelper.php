@@ -33,6 +33,12 @@ class CacheHelper
         return hash('sha256', serialize($versions));
     }
 
+    /** Tag shared by every cache entry derived from one source, across presets and variants. */
+    public static function sourceTag(string $disk, string $path): string
+    {
+        return 'source:' . hash('sha256', serialize([$disk, $path]));
+    }
+
     public static function remember(array $tags, string $key, int $ttl, callable $callback)
     {
         return self::supportsTagging() ? Cache::tags($tags)->remember($key, $ttl, $callback)

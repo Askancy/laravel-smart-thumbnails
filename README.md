@@ -301,9 +301,10 @@ cache-independent behavior of the new path identity.
 ### Cached Image Metadata for Responsive Rendering
 
 `imageData()` and the Blade component cache successful **URL + actual width/height** for 300 seconds
-by default. Warm metadata hits do not read either image. On a metadata miss in path mode, the existing
-derivative is measured without downloading the original. The dimensions reflect the actual generated
-file, including when `allow_upscale` is disabled.
+by default. Warm metadata hits do not read either image. On a metadata miss the dimensions come from the
+private ownership record written at generation time, so neither the original nor the derivative is
+downloaded; derivatives without a record (for example adopted 4.3 files) are measured from their header
+bytes only. The dimensions reflect the actual generated file, including when `allow_upscale` is disabled.
 
 ```php
 'cache_image_data' => true,
@@ -360,6 +361,23 @@ variant enables compatibility, then validates each candidate against that config
 image does not prevent an explicitly compatible variant from being generated; rejected candidates still
 count as command errors. Changing the policy selects a separate metadata cache entry. Remote source
 replacements require invalidation by default; use `imageDataFresh()` for immediate verification and refresh.
+
+### Storage Traffic on Remote Disks
+
+```php
+'verify_cached_thumbnails' => 'auto', // auto: re-check existence only on local destinations
+'failure_cache_ttl' => 300,          // seconds a refused original is remembered; 0 disables
+```
+
+- **Cached URLs:** with `auto`, a cached URL for a remote destination (S3, DigitalOcean Spaces, scoped
+  remote disks) is returned without an existence request. Purge, prune and `invalidateSource()` clear it;
+  a derivative deleted outside the package is regenerated after `cache_ttl`. Set `true` to check on every hit.
+- **Refused originals:** an original that is downloaded and then rejected (content/extension mismatch,
+  `max_file_size`, `max_megapixels`, undecodable bytes) is remembered for `failure_cache_ttl` seconds, so
+  it is not downloaded again on every page view. Missing originals, lock contention and write errors are
+  retried immediately. Changing validation settings or calling `invalidateSource()` retries at once.
+- **Invalidation scope:** queue jobs, adoption, pruning, `regenerate()` and `imageDataFresh()` invalidate
+  only the affected source's cache entries instead of the whole preset.
 
 `cache_urls`, `cache_thumbnails`, and the URL `cache_ttl` are honored. Purges invalidate the relevant
 thumbnail URL namespace, including with file/database cache stores, without clearing unrelated application

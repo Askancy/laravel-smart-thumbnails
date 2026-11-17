@@ -36,9 +36,9 @@ class ThumbnailManifest
                     if ($index->exists($file) && !$index->delete($file)) {
                         throw new \RuntimeException('Could not invalidate the thumbnail ownership record.');
                     }
-                    CacheHelper::flush([$record['preset']]);
                 });
             }
+            CacheHelper::flush([CacheHelper::sourceTag($disk, $source)]);
         });
     }
 
@@ -79,8 +79,10 @@ class ThumbnailManifest
         if (basename(dirname($path)) !== substr($record['identity'], 0, 32)) {
             return;
         }
+        $size = @getimagesizefromstring($binary);
         $record = array_merge($record, ['disk' => $disk, 'path' => $path,
-            'output_hash' => hash('sha256', $binary), 'generated_at' => now()->getTimestamp()]);
+            'output_hash' => hash('sha256', $binary), 'generated_at' => now()->getTimestamp()],
+            $size !== false ? ['width' => $size[0], 'height' => $size[1]] : []);
         $storage = Storage::disk(self::disk());
         $target = self::path($disk, $path);
         $temporary = $target . '.' . bin2hex(random_bytes(16)) . '.tmp';
@@ -94,6 +96,23 @@ class ThumbnailManifest
                 $storage->delete($temporary);
             }
         }
+    }
+
+    /** Output dimensions recorded at publication, so metadata lookups never download the derivative. */
+    public static function dimensions(string $disk, string $path): ?array
+    {
+        $manifest = self::path($disk, $path);
+        try {
+            if (!Storage::disk(self::disk())->exists($manifest)) {
+                return null;
+            }
+            $record = self::read($manifest);
+        } catch (\Throwable $e) {
+            return null;
+        }
+        $width = $record['width'] ?? null;
+        $height = $record['height'] ?? null;
+        return is_int($width) && is_int($height) && $width > 0 && $height > 0 ? [$width, $height] : null;
     }
 
     public static function read(string $manifest): array

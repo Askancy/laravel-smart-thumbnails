@@ -20,6 +20,38 @@ class ThumbnailGenerator
         return $storage->url($path);
     }
 
+    /**
+     * Actual derivative dimensions: the ownership record first, otherwise only the header bytes.
+     * Closing the stream early stops remote transfers once the dimensions are known.
+     */
+    public static function dimensions(string $disk, string $path): array
+    {
+        if ($recorded = ThumbnailManifest::dimensions($disk, $path)) {
+            return $recorded;
+        }
+        $stream = Storage::disk($disk)->readStream($path);
+        if (!is_resource($stream)) {
+            throw new \RuntimeException('Cannot read generated thumbnail: ' . $path);
+        }
+        try {
+            $header = '';
+            while (!feof($stream)) {
+                $chunk = fread($stream, strlen($header) < 65536 ? 8192 : 262144);
+                if ($chunk === false || $chunk === '') {
+                    break;
+                }
+                $header .= $chunk;
+                $size = @getimagesizefromstring($header);
+                if ($size !== false && $size[0] > 0 && $size[1] > 0) {
+                    return [$size[0], $size[1]];
+                }
+            }
+        } finally {
+            fclose($stream);
+        }
+        throw new \RuntimeException('Cannot determine generated thumbnail dimensions.');
+    }
+
     /** Shared rendering path for synchronous requests and queue workers. */
     public static function transform(
         ImageInterface $image,

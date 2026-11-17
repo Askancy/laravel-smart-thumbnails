@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `imageData()` and `<x-smart-thumbnail>` no longer download every derivative to measure it: dimensions are recorded in the ownership manifest at generation time, with a header-only read as fallback.
+- Originals that are downloaded and then refused (format mismatch, size, pixel budget, undecodable) are remembered for `failure_cache_ttl` seconds instead of being downloaded again on every request.
+- Cached URLs on remote destinations are returned without an existence request per image and page view (`verify_cached_thumbnails`, default `auto`).
+- Queue jobs, legacy adoption, pruning, `regenerate()` and `imageDataFresh()` invalidate only the affected source, not the whole preset, so one generation no longer forces every page to re-read its thumbnails.
+- Failure logs no longer issue an extra existence request on the source disk.
+
+### Added
+- `verify_cached_thumbnails` (`auto`, `true`, `false`) and `failure_cache_ttl` settings.
+
+### Migration
+- Remote same-path replacements of a previously refused original need `invalidateSource()` (already required for replacements) or wait for `failure_cache_ttl`.
+- Derivatives deleted outside the package on remote disks are regenerated after `cache_ttl`; set `verify_cached_thumbnails => true` to restore the per-request check.
+
 ## [5.1.0] - 2026-11-16
 
 ### Added

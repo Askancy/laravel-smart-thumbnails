@@ -14,6 +14,12 @@ class ThumbnailIdentity
         if ($mode !== 'auto') {
             return $mode === 'content';
         }
+        return self::isLocalDisk($disk);
+    }
+
+    /** Resolve scoped disks to their parent driver; reads on local disks cost no transfer. */
+    public static function isLocalDisk(string $disk): bool
+    {
         $seen = [];
         while (!isset($seen[$disk])) {
             $seen[$disk] = true;

@@ -164,7 +164,8 @@ class GenerateThumbnailJob implements ShouldQueue
                         $source['hash']
                     ) : null;
                     ThumbnailPublisher::publish($this->config['destination']['disk'], $this->thumbnailPath, $processedImage, $lock, $record, $sourceLock);
-                    CacheHelper::flush([$this->configKey]);
+                    // Only this source's entries: a preset-wide flush made every page re-read its thumbnails.
+                    CacheHelper::flush([CacheHelper::sourceTag($this->sourceDisk, $this->sourcePath)]);
                     $executionTime = microtime(true) - $startTime;
 
                     Log::info('Thumbnail generated asynchronously', [

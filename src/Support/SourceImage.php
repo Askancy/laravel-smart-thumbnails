@@ -32,9 +32,13 @@ class SourceImage
             throw new \RuntimeException("Source image is empty or unreadable: {$path}");
         }
         if ($limit > 0 && strlen($content) > $limit) {
-            throw new \RuntimeException("Source image exceeds max_file_size: {$path}");
+            throw new RejectedSourceException("Source image exceeds max_file_size: {$path}");
         }
-        ThumbnailGenerator::validateImageContent($path, $content, $options);
+        try {
+            ThumbnailGenerator::validateImageContent($path, $content, $options);
+        } catch (\Exception $e) {
+            throw new RejectedSourceException($e->getMessage(), 0, $e);
+        }
         $budget = PixelBudget::configuredBudget();
         if (PixelBudget::exceeds($content, $budget)) {
             $megapixels = round((float) PixelBudget::megapixels($content), 1);
@@ -43,7 +47,7 @@ class SourceImage
                     'source' => $path, 'disk' => $disk, 'megapixels' => $megapixels, 'budget_megapixels' => $budget,
                 ]);
             }
-            throw new \RuntimeException("Source image too large to decode: {$megapixels} megapixels, budget is {$budget} ({$path})");
+            throw new RejectedSourceException("Source image too large to decode: {$megapixels} megapixels, budget is {$budget} ({$path})");
         }
 
         return ['content' => $content, 'hash' => hash('sha256', $content)];

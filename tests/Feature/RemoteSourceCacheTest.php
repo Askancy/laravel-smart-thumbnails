@@ -208,8 +208,84 @@ class RemoteSourceCacheTest extends TestCase
         $this->assertSame('/fallback.png', $this->service()->urlSafe());
         $this->assertFalse($this->service()->exists());
         $this->replace('#ff0000');
+        // Same-path replacements on remote disks are announced explicitly, which also clears the rejection.
+        $this->service()->invalidateSource();
         $this->assertNotSame('/fallback.png', $this->service()->url());
         $this->assertSame('ff0000', $this->pixel());
+    }
+
+    public function test_rejected_originals_are_not_downloaded_on_every_request(): void
+    {
+        config(['thumbnails.placeholder_url' => '/fallback.png', 'thumbnails.max_megapixels' => 0.001]);
+        for ($i = 0; $i < 5; $i++) {
+            app()->forgetInstance(ThumbnailService::class);
+            $this->assertSame('/fallback.png', $this->service()->urlSafe());
+            Blade::render('<x-smart-thumbnail src="image.png" disk="remote" preset="test" :variants="[\'small\']" />');
+        }
+        // One transfer, then the refusal is remembered (the component skips variants once the main fails).
+        $this->assertSame(1, $this->reads);
+        $this->travel(301)->seconds();
+        $this->service()->urlSafe();
+        $this->assertSame(2, $this->reads);
+        config(['thumbnails.max_megapixels' => 60]);
+        $this->assertNotSame('/fallback.png', $this->service()->url(), 'A settings change must retry at once.');
+    }
+
+    public function test_missing_originals_are_retried_immediately(): void
+    {
+        config(['thumbnails.placeholder_url' => '/fallback.png']);
+        $this->source->delete('image.png');
+        $this->assertSame('/fallback.png', $this->service()->urlSafe());
+        $this->replace('#ff0000');
+        $this->assertNotSame('/fallback.png', $this->service()->url());
+    }
+
+    public function test_cached_remote_urls_skip_existence_requests(): void
+    {
+        config(['filesystems.disks.cdn' => ['driver' => 'scoped', 'disk' => 'spaces', 'prefix' => 'thumbs'],
+            'thumbnails.presets.test.destination' => ['disk' => 'cdn', 'path' => 'thumbnails/']]);
+        $output = Storage::fake('cdn');
+        $checks = 0;
+        $proxy = Mockery::mock($output);
+        $proxy->shouldReceive('exists')->andReturnUsing(function ($path) use ($output, &$checks) {
+            $checks++;
+            return $output->exists($path);
+        });
+        Storage::set('cdn', $proxy);
+        $url = $this->service()->url();
+        $before = $checks;
+        for ($i = 0; $i < 5; $i++) {
+            app()->forgetInstance(ThumbnailService::class);
+            $this->assertSame($url, $this->service()->url());
+        }
+        $this->assertSame($before, $checks);
+        config(['thumbnails.verify_cached_thumbnails' => true]);
+        $this->service()->url();
+        $this->assertSame($before + 1, $checks);
+    }
+
+    public function test_generating_one_source_keeps_other_sources_metadata_cached(): void
+    {
+        $this->source->put('other.png', $this->source->get('image.png'));
+        $this->service()->imageData();
+        (clone app(ThumbnailService::class))->set('test')->src('other.png', 'remote')->imageData();
+        $job = new \Askancy\LaravelSmartThumbnails\Jobs\GenerateThumbnailJob(
+            'image.png', 'remote', 'test', config('thumbnails.presets.test'), 'unused.png', 'small', false, true
+        );
+        $job->handle(new \Askancy\LaravelSmartThumbnails\Services\SmartCropService());
+        $reads = $this->reads;
+        $outputReads = 0;
+        $local = Storage::disk('local');
+        $proxy = Mockery::mock($local);
+        $proxy->shouldReceive('get')->andReturnUsing(function ($path) use ($local, &$outputReads) {
+            $outputReads += str_starts_with($path, 'test-crops/') ? 1 : 0;
+            return $local->get($path);
+        });
+        $proxy->shouldReceive('exists')->andReturnUsing(fn ($path) => $local->exists($path));
+        Storage::set('local', $proxy);
+        (clone app(ThumbnailService::class))->set('test')->src('other.png', 'remote')->imageData();
+        $this->assertSame($reads, $this->reads);
+        $this->assertSame(0, $outputReads);
     }
 
     public function test_queue_skips_existing_derivative_without_reading_original_after_cache_flush(): void

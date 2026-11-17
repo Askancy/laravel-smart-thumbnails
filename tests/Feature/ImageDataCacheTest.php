@@ -48,11 +48,12 @@ class ImageDataCacheTest extends TestCase
             $this->reads->{$name . '_exists'}++;
             return $adapter->exists($path);
         });
-        $method = $name === 'source' ? 'readStream' : 'get';
-        $proxy->shouldReceive($method)->andReturnUsing(function ($path) use ($name, $adapter, $method) {
-            $this->reads->{$name}++;
-            return $adapter->{$method}($path);
-        });
+        foreach ($name === 'source' ? ['readStream'] : ['get', 'readStream'] as $method) {
+            $proxy->shouldReceive($method)->andReturnUsing(function ($path) use ($name, $adapter, $method) {
+                $this->reads->{$name}++;
+                return $adapter->{$method}($path);
+            });
+        }
         Storage::set($name, $proxy);
     }
 
@@ -70,7 +71,7 @@ class ImageDataCacheTest extends TestCase
         $second = $this->service()->imageData();
         $this->assertSame($first, $second);
         $this->assertSame(1, $this->reads->source);
-        $this->assertSame(1, $this->reads->output);
+        $this->assertSame(0, $this->reads->output);
         $this->assertEquals($before, $this->reads, 'A metadata hit must not even check remote file existence.');
         $this->assertSame(100, $second['width']);
         $this->assertSame(100, $second['height']);
@@ -88,7 +89,7 @@ class ImageDataCacheTest extends TestCase
         $this->assertStringContainsString('height="20"', $second);
         $this->assertStringContainsString(' 20w', $second);
         $this->assertSame(1, $this->reads->source);
-        $this->assertSame(1, $this->reads->output);
+        $this->assertSame(0, $this->reads->output);
     }
 
     public function test_expiry_is_bounded_and_hits_do_not_extend_it(): void
@@ -101,7 +102,7 @@ class ImageDataCacheTest extends TestCase
         $this->travel(101)->seconds();
         $this->service()->imageData();
         $this->assertSame(2, $this->reads->source);
-        $this->assertSame(2, $this->reads->output);
+        $this->assertSame(0, $this->reads->output);
     }
 
     public static function stores(): array
@@ -125,7 +126,7 @@ class ImageDataCacheTest extends TestCase
         $this->service()->imageData();
         $this->service(preset: 'other')->imageData();
         $this->assertSame(5, $this->reads->source);
-        $this->assertSame(5, $this->reads->output);
+        $this->assertSame(0, $this->reads->output);
         $this->assertSame('keep', Cache::get('unrelated-app-data'));
         Cache::flush();
     }
@@ -140,7 +141,7 @@ class ImageDataCacheTest extends TestCase
         $this->assertNotSame($first['url'], $fresh['url']);
         $this->assertSame($fresh, $this->service()->imageData());
         $this->assertSame(2, $this->reads->source);
-        $this->assertSame(2, $this->reads->output);
+        $this->assertSame(0, $this->reads->output);
     }
 
     public function test_removed_derivatives_are_repaired_by_fresh_metadata_and_purge_invalidates_metadata(): void
@@ -156,7 +157,7 @@ class ImageDataCacheTest extends TestCase
         $this->assertSame(1, $service->purgePreset('test'));
         $this->service()->imageData();
         $this->assertTrue($this->output->exists($path));
-        $this->assertSame(3, $this->reads->output);
+        $this->assertSame(0, $this->reads->output);
     }
 
     public function test_url_and_url_safe_keep_immediate_source_verification(): void
@@ -206,7 +207,7 @@ class ImageDataCacheTest extends TestCase
         $third = $this->service()->imageData();
         $this->assertStringStartsWith('https://new-cdn.example.test/', $third['url']);
         $this->assertSame(3, $this->reads->source);
-        $this->assertSame(3, $this->reads->output);
+        $this->assertSame(0, $this->reads->output);
     }
 
     public function test_scoped_parent_configuration_and_source_validation_changes_are_respected(): void
@@ -242,7 +243,7 @@ class ImageDataCacheTest extends TestCase
         $this->assertNotSame($first['url'], $second['url']);
         $this->assertSame($second, $third);
         $this->assertSame(3, $this->reads->source);
-        $this->assertSame(3, $this->reads->output);
+        $this->assertSame(0, $this->reads->output);
     }
 
     public function test_failure_is_not_cached_and_silent_mode_is_restored_after_a_failed_refresh(): void
@@ -269,6 +270,8 @@ class ImageDataCacheTest extends TestCase
         $service = $this->service();
         $service->url();
         $path = $service->path();
+        // Without an ownership record only the header is read, and an unreadable one is never cached.
+        Storage::disk('local')->delete(\Askancy\LaravelSmartThumbnails\Support\ThumbnailManifest::path('output', $path));
         $this->output->put($path, 'corrupt');
         try {
             $this->service()->imageData();
@@ -282,6 +285,18 @@ class ImageDataCacheTest extends TestCase
         $this->assertSame(2, $this->reads->output);
     }
 
+    public function test_metadata_uses_recorded_dimensions_without_downloading_the_derivative(): void
+    {
+        config(['thumbnails.image_data_cache_ttl' => 1]);
+        $first = $this->service()->imageData();
+        foreach ([2, 600, 86400] as $seconds) {
+            $this->travel($seconds)->seconds();
+            $this->assertSame($first, $this->service()->imageData());
+        }
+        $this->assertSame(['url' => $first['url'], 'width' => 100, 'height' => 100], $first);
+        $this->assertSame(0, $this->reads->output);
+    }
+
     public function test_a_missing_source_is_retried_and_never_replaced_by_cached_fallback_metadata(): void
     {
         $this->source->delete('image.png');
@@ -293,7 +308,7 @@ class ImageDataCacheTest extends TestCase
         $this->assertStringNotContainsString('/fallback.png', $rendered);
         $this->assertStringContainsString('width="100"', $rendered);
         $this->assertSame(1, $this->reads->source);
-        $this->assertSame(1, $this->reads->output);
+        $this->assertSame(0, $this->reads->output);
     }
 
     public function test_a_flush_during_loading_cannot_repopulate_the_new_metadata_namespace_with_old_data(): void

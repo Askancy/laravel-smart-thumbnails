@@ -4,6 +4,7 @@ namespace Askancy\LaravelSmartThumbnails\Services;
 
 use Askancy\LaravelSmartThumbnails\Support\CacheHelper;
 use Askancy\LaravelSmartThumbnails\Support\PixelBudget;
+use Askancy\LaravelSmartThumbnails\Support\RejectedSourceException;
 use Askancy\LaravelSmartThumbnails\Support\SourceImage;
 use Askancy\LaravelSmartThumbnails\Support\ThumbnailIdentity;
 use Askancy\LaravelSmartThumbnails\Support\GenerationLock;
@@ -246,7 +247,6 @@ class ThumbnailService
                     'source_path' => $this->sourcePath ?? 'unknown',
                     'variant' => $variant,
                     'silent_mode' => $this->silentMode,
-                    'file_exists' => $this->sourcePath ? Storage::disk($this->sourceDisk)->exists($this->sourcePath) : false,
                     'request_url' => $this->getCurrentUrl(),
                 ]);
             } catch (\Exception $logError) {
@@ -319,8 +319,8 @@ class ThumbnailService
                     if (!Storage::disk($config['destination']['disk'])->exists($path)) {
                         continue;
                     }
-                    $key = 'url:v3:' . hash('sha256', $config['destination']['disk'] . ':' . $path);
-                    if (CacheHelper::has([self::CACHE_TAG, $preset], $key)) {
+                    $key = $this->urlCacheKey($config['destination']['disk'], $path);
+                    if (CacheHelper::has($this->urlCacheTags($preset), $key)) {
                         $results['already_cached']++;
                     } else {
                         $this->url($variant);
@@ -406,7 +406,11 @@ class ThumbnailService
             $this->assertWithinPixelBudget($imageContent);
 
             // Read image using Intervention Image 3.x
-            $image = $this->imageManager->read($imageContent);
+            try {
+                $image = $this->imageManager->read($imageContent);
+            } catch (\Exception $e) {
+                throw new RejectedSourceException("Source image cannot be decoded: {$this->sourcePath}", 0, $e);
+            }
 
             [$width, $height] = explode('x', $config['smartcrop']);
             $width = (int) $width;
@@ -503,7 +507,7 @@ class ThumbnailService
         $tags = [self::CACHE_TAG, $this->configKey];
         if ($fresh) {
             // Advance the namespace before loading so earlier readers cannot overwrite this refresh.
-            CacheHelper::flush([$this->configKey]);
+            CacheHelper::flush([$this->sourceCacheTag()]);
         }
         $key = $enabled ? $this->imageDataCacheKey($config, $variant, $ttl) : null;
         if ($key !== null && !$fresh && ($cached = CacheHelper::get($tags, $key)) !== null) {
@@ -516,14 +520,11 @@ class ThumbnailService
         try {
             $this->url($variant, $fresh && !ThumbnailIdentity::usesContentHash($this->sourceDisk, $config));
             $path = $this->generateThumbnailPath($config, $variant);
-            $binary = Storage::disk($config['destination']['disk'])->get($path);
-            $size = is_string($binary) ? @getimagesizefromstring($binary) : false;
-            if ($size === false || $size[0] <= 0 || $size[1] <= 0) {
-                throw new \RuntimeException('Cannot determine generated thumbnail dimensions.');
-            }
+            // Recorded at publication; never download the whole derivative just to measure it.
+            [$width, $height] = ThumbnailGenerator::dimensions($config['destination']['disk'], $path);
             // URL cache entries predate changes to a disk's URL/endpoint; compute the current public URL.
             $result = ['url' => ThumbnailGenerator::diskUrl($config['destination']['disk'], $path),
-                'width' => $size[0], 'height' => $size[1]];
+                'width' => $width, 'height' => $height];
         } finally {
             $this->silentMode = $originalMode;
         }
@@ -533,14 +534,21 @@ class ThumbnailService
         return $result;
     }
 
-    protected function imageDataCacheKey(array $config, ?string $variant, int $ttl): string
+    /** Global settings that affect whether and how a source is accepted and where its output lives. */
+    protected function validationSettings(): array
     {
-        unset($config['variants']);
         $globals = [];
         foreach (['intervention_driver', 'default_subdirectory_strategy', 'sanitize_filenames',
             'max_file_size', 'max_megapixels', 'validate_image_content', 'allowed_extensions'] as $option) {
             $globals[$option] = config('thumbnails.' . $option);
         }
+        return $globals;
+    }
+
+    protected function imageDataCacheKey(array $config, ?string $variant, int $ttl): string
+    {
+        unset($config['variants']);
+        $globals = $this->validationSettings();
         return 'image_data:v1:' . hash('sha256', serialize([
             $this->configKey, $this->sourceDisk, $this->sourcePath, $variant, $config, $globals, $ttl,
             CacheHelper::namespaceFingerprint([self::CACHE_TAG, $this->configKey]),
@@ -553,7 +561,31 @@ class ThumbnailService
 
     protected function sourceCacheTag(): string
     {
-        return 'source:' . hash('sha256', serialize([$this->sourceDisk, $this->sourcePath]));
+        return CacheHelper::sourceTag($this->sourceDisk, $this->sourcePath);
+    }
+
+    /** URL and failure entries are tagged by source too, so per-source invalidation never flushes a preset. */
+    protected function urlCacheTags(?string $preset = null): array
+    {
+        return [self::CACHE_TAG, $preset ?? $this->configKey, $this->sourceCacheTag()];
+    }
+
+    protected function urlCacheKey(string $disk, string $path): string
+    {
+        return 'url:v4:' . hash('sha256', $disk . ':' . $path);
+    }
+
+    /** Remote existence checks are a storage request per image per page view; local ones are free. */
+    protected function verifiesCachedThumbnails(string $disk): bool
+    {
+        $mode = config('thumbnails.verify_cached_thumbnails', 'auto');
+        return $mode === 'auto' ? ThumbnailIdentity::isLocalDisk($disk) : (bool) $mode;
+    }
+
+    protected function failureCacheKey(array $config, string $path): string
+    {
+        unset($config['variants']);
+        return 'failure:v1:' . hash('sha256', serialize([$config['destination']['disk'], $path, $config, $this->validationSettings()]));
     }
 
     /** Call after replacing/deleting this source to invalidate all presets and variants. */
@@ -721,36 +753,59 @@ class ThumbnailService
         if (!$this->configKey || !$this->sourcePath) {
             return $this->getFallbackUrl();
         }
+        $cachedFailure = false;
         try {
             $config = $this->getEffectiveConfigOptimized($variant);
             $this->sourceSnapshot = $this->resolveSource($config);
             $path = $this->generateThumbnailPath($config, $variant);
-            $disk = Storage::disk($config['destination']['disk']);
-            $tags = [self::CACHE_TAG, $this->configKey];
-            if ($force || !config('thumbnails.cache_thumbnails', true) || !$disk->exists($path)) {
-                $path = ThumbnailManifest::withSourceLock($this->sourcePath, $this->sourceDisk, function (Lock $sourceLock) use ($config, $force, $variant, $disk) {
-                    $this->sourceGenerationLock = $sourceLock;
-                    try {
-                        // Adoption or invalidation may have changed the selected path while waiting.
-                        $path = $this->generateThumbnailPath($config, $variant);
-                        GenerationLock::run($config['destination']['disk'], $path, function (Lock $lock) use ($config, $path, $force, $variant, $disk) {
-                            // A worker may have completed this thumbnail while this request waited for its lock.
-                            if ($force || !config('thumbnails.cache_thumbnails', true) || !$disk->exists($path)) {
-                                $this->generateThumbnailSafe($config, $path, $lock, $variant);
-                            }
-                        });
-                        return $path;
-                    } finally {
-                        $this->sourceGenerationLock = null;
+            $destination = $config['destination']['disk'];
+            $disk = Storage::disk($destination);
+            $tags = $this->urlCacheTags();
+            $cacheThumbnails = config('thumbnails.cache_thumbnails', true);
+            // Remote hits skip the existence request; purge, prune and invalidation flush these entries.
+            if (!$force && $cacheThumbnails && config('thumbnails.cache_urls', true) && !$this->verifiesCachedThumbnails($destination)
+                && ($url = CacheHelper::get($tags, $this->urlCacheKey($destination, $path)))) {
+                return $url;
+            }
+            if ($force || !$cacheThumbnails || !$disk->exists($path)) {
+                $failureKey = $this->failureCacheKey($config, $path);
+                if (!$force && is_string($failure = CacheHelper::get($tags, $failureKey))) {
+                    // A rejected original would otherwise be downloaded again on every page view.
+                    $cachedFailure = true;
+                    throw new \RuntimeException($failure);
+                }
+                try {
+                    $path = ThumbnailManifest::withSourceLock($this->sourcePath, $this->sourceDisk, function (Lock $sourceLock) use ($config, $force, $variant, $disk) {
+                        $this->sourceGenerationLock = $sourceLock;
+                        try {
+                            // Adoption or invalidation may have changed the selected path while waiting.
+                            $path = $this->generateThumbnailPath($config, $variant);
+                            GenerationLock::run($config['destination']['disk'], $path, function (Lock $lock) use ($config, $path, $force, $variant, $disk) {
+                                // A worker may have completed this thumbnail while this request waited for its lock.
+                                if ($force || !config('thumbnails.cache_thumbnails', true) || !$disk->exists($path)) {
+                                    $this->generateThumbnailSafe($config, $path, $lock, $variant);
+                                }
+                            });
+                            return $path;
+                        } finally {
+                            $this->sourceGenerationLock = null;
+                        }
+                    });
+                } catch (RejectedSourceException $e) {
+                    // Only refusals after a transfer: missing files, lock contention and write errors are retried.
+                    $ttl = (int) config('thumbnails.failure_cache_ttl', 300);
+                    if ($ttl > 0) {
+                        CacheHelper::put($tags, $failureKey, $e->getMessage(), $ttl);
                     }
-                });
-                CacheHelper::forget($tags, 'url:v3:' . hash('sha256', $config['destination']['disk'] . ':' . $path));
+                    throw $e;
+                }
+                CacheHelper::forget($tags, $this->urlCacheKey($destination, $path));
             }
-            $cacheKey = 'url:v3:' . hash('sha256', $config['destination']['disk'] . ':' . $path);
+            $cacheKey = $this->urlCacheKey($destination, $path);
             if ($force) {
-                CacheHelper::flush([$this->configKey]);
+                CacheHelper::flush([$this->sourceCacheTag()]);
             }
-            // Check the file even on cache hits: purges or external deletions cannot leave a stale URL.
+            // Local destinations were verified above even on cache hits, so external deletions are repaired at once.
             if (config('thumbnails.cache_urls', true) && ($url = CacheHelper::get($tags, $cacheKey))) {
                 return $url;
             }
@@ -760,7 +815,9 @@ class ThumbnailService
             }
             return $url;
         } catch (\Exception $e) {
-            $this->logWarning('Thumbnail failed, using fallback', $e, $variant);
+            if (!$cachedFailure) {
+                $this->logWarning('Thumbnail failed, using fallback', $e, $variant);
+            }
             if (!$this->silentMode) {
                 throw $e;
             }

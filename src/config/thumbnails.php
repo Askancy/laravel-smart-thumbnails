@@ -46,6 +46,11 @@ return [
     'source_identity' => 'auto', // Remote: path + settings, no original reads on hits. Local: content hash. Override with path/content.
     'cache_image_data' => true, // Cache successful URL + actual dimensions
     'image_data_cache_ttl' => 300, // Positive seconds; 0 disables metadata caching
+    // auto: re-check existence on cache hits only for local destinations; remote ones trust the URL cache.
+    // true/false force either behaviour. External deletions on remote disks then surface after cache_ttl.
+    'verify_cached_thumbnails' => 'auto',
+    // Seconds a failed generation is remembered, so a rejected original is not downloaded on every request. 0 disables.
+    'failure_cache_ttl' => 300,
 
     /*
     |--------------------------------------------------------------------------

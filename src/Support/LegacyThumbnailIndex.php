@@ -70,7 +70,7 @@ class LegacyThumbnailIndex
                 || !$storage->move($temporary, $key)) {
                 throw new \RuntimeException('Could not persist legacy thumbnail adoption.');
             }
-            CacheHelper::flush([$record['preset']]);
+            CacheHelper::flush([CacheHelper::sourceTag($record['source_disk'], $record['source'])]);
         } finally {
             if ($storage->exists($temporary)) {
                 $storage->delete($temporary);
