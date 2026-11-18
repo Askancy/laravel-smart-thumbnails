@@ -115,6 +115,34 @@ class ThumbnailManifest
         return is_int($width) && is_int($height) && $width > 0 && $height > 0 ? [$width, $height] : null;
     }
 
+    /** Complete a record written without dimensions (4.3 adoptions) so later lookups need no storage read. */
+    public static function rememberDimensions(string $disk, string $path, int $width, int $height): void
+    {
+        $manifest = self::path($disk, $path);
+        $storage = Storage::disk(self::disk());
+        try {
+            if (!$storage->exists($manifest)) {
+                return;
+            }
+            $record = self::read($manifest);
+            if (isset($record['width'], $record['height'])) {
+                return;
+            }
+            $record['width'] = $width;
+            $record['height'] = $height;
+            $temporary = $manifest . '.' . bin2hex(random_bytes(16)) . '.tmp';
+            if ($storage->put($temporary, json_encode($record, JSON_THROW_ON_ERROR), ['visibility' => 'private'])) {
+                $storage->move($temporary, $manifest);
+            }
+        } catch (\Throwable $e) {
+            // Only an optimisation: the next lookup measures the header again.
+        } finally {
+            if (isset($temporary) && $storage->exists($temporary)) {
+                $storage->delete($temporary);
+            }
+        }
+    }
+
     public static function read(string $manifest): array
     {
         $binary = Storage::disk(self::disk())->get($manifest);

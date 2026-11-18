@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.2.1] - 2026-11-18
+
+### Added
+- `knownImageData()` resolves the URL and dimensions of an already published derivative from its local ownership record only: no storage request, no source read, no generation. Applications that defer generation to a queue can serve existing thumbnails immediately, even after a full cache flush.
+
+### Fixed
+- `url()` on remote destinations trusts the local ownership record instead of issuing an existence request when its URL cache entry is missing.
+- Records written without dimensions (4.3 adoptions) are completed the first time the derivative header is measured, so later lookups need no storage read.
+
 ## [5.2.0] - 2026-11-17
 
 ### Fixed

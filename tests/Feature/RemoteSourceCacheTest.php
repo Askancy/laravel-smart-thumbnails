@@ -348,4 +348,64 @@ class RemoteSourceCacheTest extends TestCase
         $this->assertFalse(Storage::disk('local')->exists($old));
         $this->assertSame($before, $this->reads);
     }
+
+    /** Remote destination whose storage calls are counted; returns the counters by reference. */
+    private function remoteDestination(): \ArrayObject
+    {
+        config(['filesystems.disks.cdn' => ['driver' => 'scoped', 'disk' => 'spaces', 'prefix' => 'thumbs'],
+            'thumbnails.presets.test.destination' => ['disk' => 'cdn', 'path' => 'thumbnails/']]);
+        $output = Storage::fake('cdn');
+        $calls = new \ArrayObject(['exists' => 0, 'get' => 0, 'readStream' => 0]);
+        $proxy = Mockery::mock($output);
+        foreach (['exists', 'get', 'readStream'] as $method) {
+            $proxy->shouldReceive($method)->andReturnUsing(function (...$arguments) use ($output, $calls, $method) {
+                $calls[$method]++;
+                return $output->{$method}(...$arguments);
+            });
+        }
+        Storage::set('cdn', $proxy);
+        return $calls;
+    }
+
+    public function test_known_image_data_needs_no_storage_request_and_survives_cache_flushes(): void
+    {
+        $calls = $this->remoteDestination();
+        $this->assertNull($this->service()->knownImageData(), 'Never generated: the caller must generate or queue it.');
+        $generated = $this->service()->imageData('small');
+        $this->service()->url();
+        $before = [$calls->getArrayCopy(), $this->reads];
+        foreach ([0, 86400 * 30] as $seconds) {
+            $this->travel($seconds)->seconds();
+            Cache::flush();
+            app()->forgetInstance(ThumbnailService::class);
+            $this->assertSame($generated, $this->service()->knownImageData('small'));
+            $this->assertSame($generated, $this->service()->imageData('small'));
+            $this->assertSame(100, $this->service()->knownImageData()['width']);
+        }
+        $this->assertSame($before, [$calls->getArrayCopy(), $this->reads], 'No exists/get/readStream on Spaces and no original read.');
+
+        $this->service()->invalidateSource();
+        $this->assertNull($this->service()->knownImageData('small'));
+    }
+
+    public function test_legacy_records_without_dimensions_are_completed_once(): void
+    {
+        $calls = $this->remoteDestination();
+        $path = $this->service()->path();
+        $this->service()->url();
+        $manifest = \Askancy\LaravelSmartThumbnails\Support\ThumbnailManifest::path('cdn', $path);
+        $record = json_decode(Storage::disk('local')->get($manifest), true);
+        unset($record['width'], $record['height']);
+        Storage::disk('local')->put($manifest, json_encode($record));
+        Cache::flush();
+
+        $this->assertNull($this->service()->knownImageData());
+        $this->assertSame(100, $this->service()->imageData()['width']);
+        $this->assertSame(1, $calls['readStream'], 'Measured once from the header.');
+        Cache::flush();
+        $this->assertSame(100, $this->service()->knownImageData()['width']);
+        $this->assertSame(100, $this->service()->imageData()['width']);
+        $this->assertSame(1, $calls['readStream']);
+    }
 }
+

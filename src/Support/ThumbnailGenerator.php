@@ -43,6 +43,7 @@ class ThumbnailGenerator
                 $header .= $chunk;
                 $size = @getimagesizefromstring($header);
                 if ($size !== false && $size[0] > 0 && $size[1] > 0) {
+                    ThumbnailManifest::rememberDimensions($disk, $path, $size[0], $size[1]);
                     return [$size[0], $size[1]];
                 }
             }

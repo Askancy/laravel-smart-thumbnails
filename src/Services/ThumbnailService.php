@@ -481,6 +481,34 @@ class ThumbnailService
         return $this->url($variant, true);
     }
 
+    /**
+     * URL and dimensions of an already published derivative, resolved from the local ownership record
+     * only: no storage request, no source read, no generation. Null when the derivative is not recorded
+     * (never generated, invalidated, or a local destination); callers then generate or queue it.
+     */
+    public function knownImageData(?string $variant = null): ?array
+    {
+        if (!$this->configKey || !$this->sourcePath) {
+            return null;
+        }
+        try {
+            $config = $this->getEffectiveConfigOptimized($variant);
+            $destination = $config['destination']['disk'];
+            if (ThumbnailIdentity::usesContentHash($this->sourceDisk, $config) || $this->verifiesCachedThumbnails($destination)) {
+                return null;
+            }
+            $this->sourceSnapshot = ['hash' => ''];
+            $path = $this->generateThumbnailPath($config, $variant);
+            $dimensions = ThumbnailManifest::dimensions($destination, $path);
+            if ($dimensions === null) {
+                return null;
+            }
+            return ['url' => ThumbnailGenerator::diskUrl($destination, $path), 'width' => $dimensions[0], 'height' => $dimensions[1]];
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     /** Actual output dimensions, suitable for responsive width descriptors. */
     public function imageData(?string $variant = null): array
     {
@@ -767,7 +795,11 @@ class ThumbnailService
                 && ($url = CacheHelper::get($tags, $this->urlCacheKey($destination, $path)))) {
                 return $url;
             }
-            if ($force || !$cacheThumbnails || !$disk->exists($path)) {
+            // A derivative with an ownership record was published by this package: on remote disks the
+            // local record replaces the existence request, so a cleared cache costs no storage traffic.
+            $recorded = !$force && $cacheThumbnails && !$this->verifiesCachedThumbnails($destination)
+                && ThumbnailManifest::dimensions($destination, $path) !== null;
+            if ($force || !$cacheThumbnails || (!$recorded && !$disk->exists($path))) {
                 $failureKey = $this->failureCacheKey($config, $path);
                 if (!$force && is_string($failure = CacheHelper::get($tags, $failureKey))) {
                     // A rejected original would otherwise be downloaded again on every page view.
